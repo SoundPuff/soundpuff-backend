@@ -8,7 +8,7 @@ dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
     "sqlalchemy>=2.0.23",
-    "pydantic>=2.5.0",
+    "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
@@ -24,5 +24,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []
