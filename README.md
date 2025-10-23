@@ -67,8 +67,9 @@ soundpuff-backend/
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.8-3.12
 - PostgreSQL 12+
+- [uv](https://docs.astral.sh/uv/) - Fast Python package installer
 
 ### Installation
 
@@ -78,15 +79,14 @@ git clone <repository-url>
 cd soundpuff-backend
 ```
 
-2. Create a virtual environment:
+2. Install uv (if not already installed):
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. Install dependencies:
+3. Install dependencies and create virtual environment:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 4. Create a PostgreSQL database:
@@ -101,16 +101,16 @@ cp .env.example .env
 
 6. Initialize Alembic and create the database tables:
 ```bash
-alembic init alembic
-alembic revision --autogenerate -m "Initial migration"
-alembic upgrade head
+uv run alembic init alembic
+uv run alembic revision --autogenerate -m "Initial migration"
+uv run alembic upgrade head
 ```
 
 ### Running the Application
 
 Start the development server:
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`
@@ -162,17 +162,41 @@ API documentation (Swagger UI): `http://localhost:8000/api/v1/docs`
 
 Create a new migration:
 ```bash
-alembic revision --autogenerate -m "Description"
+uv run alembic revision --autogenerate -m "Description"
 ```
 
 Apply migrations:
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 Rollback migration:
 ```bash
-alembic downgrade -1
+uv run alembic downgrade -1
+```
+
+### Adding Dependencies
+
+Add a new dependency:
+```bash
+uv add <package-name>
+```
+
+Add a development dependency:
+```bash
+uv add --dev <package-name>
+```
+
+### Managing the Environment
+
+Sync dependencies (install/update based on lock file):
+```bash
+uv sync
+```
+
+Update dependencies:
+```bash
+uv lock --upgrade
 ```
 
 ## License
