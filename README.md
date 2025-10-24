@@ -201,4 +201,4 @@ uv lock --upgrade
 
 ## License
 
-MIT
+MIT2
