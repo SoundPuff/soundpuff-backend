@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
-from typing import Optional
+from pydantic import AnyHttpUrl, BaseSettings, validator
+from typing import List, Optional
+from sqlalchemy.engine.url import make_url, URL
 
 
 class Settings(BaseSettings):
@@ -14,22 +15,46 @@ class Settings(BaseSettings):
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_PORT: str = "5432"
     POSTGRES_DB: str = "soundpuff"
+    DATABASE_URL: Optional[str] = None 
 
     @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-
+    def db_url(self) -> str:
+        return self.DATABASE_URL or (f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@"
+            f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}")
+    
     # Security Settings
-    SECRET_KEY: str = "your-secret-key-change-this-in-production"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     # CORS Settings
-    BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173"]
+    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
+
+
+    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    def assemble_cors_origins(cls, v):
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
+    
+    
+    @validator("DATABASE_URL")
+    def validate_db_url(cls, v):
+        if v is None or v.strip() == "":
+            return v
+        try:
+            make_url(v)
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid DATABASE_URL. Example format: "
+                 f"postgresql+psycopg2://user:password@host:port/db_name. Error: {e}")
+
+
 
     class Config:
         env_file = ".env"
         case_sensitive = True
-
 
 settings = Settings()
