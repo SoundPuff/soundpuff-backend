@@ -1,0 +1,18 @@
+# Python virtual env
+.venv/
+__pycache__/
+*.pyc
+
+# Alembic cache
+alembic/__pycache__/
+
+# Git
+.git/
+.gitignore
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Local files
+.env
