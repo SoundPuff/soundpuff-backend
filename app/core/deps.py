@@ -3,6 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
+from supabase import Client
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -10,6 +11,16 @@ from app.models.user import User
 from app.schemas.token import TokenData
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+
+
+def get_supabase_client() -> Client:
+    client = settings.supabase_client
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase client not configured"
+        )
+    return client
 
 
 def get_current_user(

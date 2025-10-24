@@ -8,3 +8,4 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
 alembic==1.12.1
 psycopg2-binary==2.9.9
+supabase==2.3.0

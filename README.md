@@ -15,7 +15,8 @@ A social music platform API built with FastAPI and PostgreSQL.
 ## Tech Stack
 
 - **FastAPI** - Modern Python web framework
-- **PostgreSQL** - Database
+- **PostgreSQL** - Database (local development)
+- **Supabase** - Database and Auth (production)
 - **SQLAlchemy** - ORM
 - **Alembic** - Database migrations
 - **Pydantic** - Data validation
@@ -68,7 +69,8 @@ soundpuff-backend/
 ### Prerequisites
 
 - Python 3.8-3.12
-- PostgreSQL 12+
+- PostgreSQL 12+ (for local development)
+- [Supabase](https://supabase.com) account (for production database)
 - [uv](https://docs.astral.sh/uv/) - Fast Python package installer
 
 ### Installation
@@ -89,14 +91,29 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 ```
 
-4. Create a PostgreSQL database:
-```bash
-createdb soundpuff
-```
+4. **Database Setup**
+
+   **Option A: Local PostgreSQL (Development)**
+   ```bash
+   createdb soundpuff
+   ```
+
+   **Option B: Supabase (Production)**
+   1. Create a new project at [supabase.com](https://supabase.com)
+   2. Go to Settings > API to get your project URL and anon key
+   3. Go to Settings > Database to get your database password
+   4. Your DATABASE_URL will be: `postgresql+psycopg2://postgres:[password]@db.[project-ref].supabase.co:5432/postgres`
 
 5. Copy `.env.example` to `.env` and update the values:
 ```bash
 cp .env.example .env
+```
+
+For Supabase, update these variables in `.env`:
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+DATABASE_URL=postgresql+psycopg2://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
 ```
 
 6. Initialize Alembic and create the database tables:

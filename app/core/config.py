@@ -1,6 +1,8 @@
-from pydantic import AnyHttpUrl, BaseSettings, validator
+from pydantic import AnyHttpUrl, validator
+from pydantic_settings import BaseSettings
 from typing import List, Optional
 from sqlalchemy.engine.url import make_url, URL
+from supabase import create_client, Client
 
 
 class Settings(BaseSettings):
@@ -17,10 +19,25 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "soundpuff"
     DATABASE_URL: Optional[str] = None 
 
+    # Supabase Settings
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+
     @property
     def db_url(self) -> str:
+        if self.SUPABASE_URL:
+            # Supabase provides a direct DATABASE_URL, but we can construct it
+            # For now, assume SUPABASE_DATABASE_URL is set, or use DATABASE_URL
+            return self.DATABASE_URL or f"postgresql+psycopg2://postgres:[password]@db.[project-ref].supabase.co:5432/postgres"
         return self.DATABASE_URL or (f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@"
             f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}")
+    
+    @property
+    def supabase_client(self) -> Optional[Client]:
+        if self.SUPABASE_URL and self.SUPABASE_ANON_KEY:
+            return create_client(self.SUPABASE_URL, self.SUPABASE_ANON_KEY)
+        return None
     
     # Security Settings
     SECRET_KEY: str
