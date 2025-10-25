@@ -1,15 +1,16 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from uuid import UUID
 
 
 class UserBase(BaseModel):
     username: str
-    email: EmailStr
 
 
 class UserCreate(UserBase):
-    password: str
+    """Schema for creating a user profile after Supabase Auth signup"""
+    pass
 
 
 class UserUpdate(BaseModel):
@@ -18,11 +19,10 @@ class UserUpdate(BaseModel):
 
 
 class UserInDB(UserBase):
-    id: int
+    id: UUID
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -4,8 +4,7 @@ from typing import List
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.user import User
-from app.models.follow import Follow
+from app.models import User, Follow
 from app.schemas.user import User as UserSchema, UserUpdate
 from app.schemas.follow import Follow as FollowSchema
 

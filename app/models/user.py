@@ -1,20 +1,20 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base_class import Base
+import uuid
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # UUID that references auth.users(id) from Supabase Auth
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(String(50), unique=True, index=True, nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     playlists = relationship("Playlist", back_populates="owner", cascade="all, delete-orphan")
@@ -30,7 +30,7 @@ class User(Base):
     )
     followers = relationship(
         "Follow",
-        foreign_keys="Follow.followed_id",
+        foreign_keys="Follow.following_id",
         back_populates="followed",
         cascade="all, delete-orphan"
     )
