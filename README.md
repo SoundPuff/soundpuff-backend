@@ -101,8 +101,11 @@ uv sync
    **Option B: Supabase (Production)**
    1. Create a new project at [supabase.com](https://supabase.com)
    2. Go to Settings > API to get your project URL and anon key
-   3. Go to Settings > Database to get your database password
-   4. Your DATABASE_URL will be: `postgresql+psycopg2://postgres:[password]@db.[project-ref].supabase.co:5432/postgres`
+   3. Go to Settings > Database > **Connection Pooling**
+   4. Copy the **Session pooler** connection string (port 6543)
+   5. Your DATABASE_URL format: `postgresql+psycopg2://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`
+
+   **Note**: Use the Session Pooler (port 6543) instead of direct connection (port 5432) if you don't have IPv6.
 
 5. Copy `.env.example` to `.env` and update the values:
 ```bash
@@ -113,7 +116,9 @@ For Supabase, update these variables in `.env`:
 ```
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-DATABASE_URL=postgresql+psycopg2://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+# Use Session Pooler (IPv4 compatible - port 6543)
+DATABASE_URL=postgresql+psycopg2://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 ```
 
 6. Initialize Alembic and create the database tables:
@@ -132,7 +137,17 @@ uv run uvicorn app.main:app --reload
 
 The API will be available at `http://localhost:8000`
 
-API documentation (Swagger UI): `http://localhost:8000/api/v1/docs`
+### 📚 Interactive API Documentation
+
+**Swagger UI (Recommended)**: http://localhost:8000/api/v1/docs
+- Interactive API testing interface
+- Try out endpoints directly from your browser
+- Built-in authentication support
+- See `SWAGGER_UI_GUIDE.md` for detailed usage instructions
+
+**ReDoc**: http://localhost:8000/api/v1/redoc
+- Clean, readable API documentation
+- Better for reviewing the API structure
 
 ## API Endpoints
 

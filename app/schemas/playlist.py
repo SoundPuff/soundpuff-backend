@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 from app.schemas.user import User
 from app.schemas.song import Song
 
@@ -23,7 +24,7 @@ class PlaylistUpdate(BaseModel):
 
 class PlaylistInDB(PlaylistBase):
     id: int
-    owner_id: int
+    user_id: UUID
     created_at: datetime
     updated_at: Optional[datetime] = None
 

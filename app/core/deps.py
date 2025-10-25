@@ -1,47 +1,69 @@
 from typing import Generator
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from supabase import Client
+from uuid import UUID
 
 from app.core.config import settings
+from app.core.supabase import get_supabase_client as create_supabase_client
 from app.db.session import get_db
-from app.models.user import User
-from app.schemas.token import TokenData
+from app.models import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+# Use HTTPBearer instead of OAuth2PasswordBearer since we're using Supabase Auth
+security = HTTPBearer()
 
 
 def get_supabase_client() -> Client:
-    client = settings.supabase_client
-    if client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase client not configured"
-        )
-    return client
+    """Dependency to get Supabase client"""
+    return create_supabase_client()
 
 
 def get_current_user(
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    supabase: Client = Depends(get_supabase_client)
 ) -> User:
+    """
+    Verify Supabase JWT token and return the current user.
+    The token is issued by Supabase Auth when users sign up or log in.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError:
-        raise credentials_exception
 
-    user = db.query(User).filter(User.username == token_data.username).first()
-    if user is None:
+    token = credentials.credentials
+
+    try:
+        # Verify the token with Supabase
+        user_response = supabase.auth.get_user(token)
+
+        if not user_response or not user_response.user:
+            raise credentials_exception
+
+        supabase_user = user_response.user
+        user_id = UUID(supabase_user.id)
+
+        # Get user from our database
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found. Please create a profile first."
+            )
+
+        return user
+
+    except ValueError as e:
+        # Invalid UUID
         raise credentials_exception
-    return user
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication credentials: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
