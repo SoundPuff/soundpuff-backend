@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -44,11 +45,11 @@ def read_user_by_username(username: str, db: Session = Depends(get_db)):
     return user
 
 
-@router.post("/{username}/follow", response_model=FollowSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/{username}/follow", status_code=status.HTTP_204_NO_CONTENT)
 def follow_user(
     username: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     # Get user to follow
     user_to_follow = db.query(User).filter(User.username == username).first()
@@ -57,39 +58,34 @@ def follow_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-
-    # Check if trying to follow self
-    if user_to_follow.id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot follow yourself"
-        )
-
+    
     # Check if already following
     existing_follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
-        Follow.followed_id == user_to_follow.id
+        Follow.following_id == user_to_follow.id
     ).first()
-
+    
     if existing_follow:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already following this user"
         )
-
-    # Create follow
-    follow = Follow(follower_id=current_user.id, followed_id=user_to_follow.id)
+    
+    # Create follow relationship
+    follow = Follow(
+        follower_id=current_user.id,
+        following_id=user_to_follow.id
+    )
     db.add(follow)
     db.commit()
-    db.refresh(follow)
-    return follow
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{username}/follow", status_code=status.HTTP_204_NO_CONTENT)
 def unfollow_user(
     username: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     # Get user to unfollow
     user_to_unfollow = db.query(User).filter(User.username == username).first()
@@ -98,22 +94,22 @@ def unfollow_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-
-    # Find and delete follow
+    
+    # Find and delete follow relationship
     follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
-        Follow.followed_id == user_to_unfollow.id
+        Follow.following_id == user_to_unfollow.id
     ).first()
-
+    
     if not follow:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not following this user"
         )
-
+    
     db.delete(follow)
     db.commit()
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{username}/followers", response_model=List[UserSchema])
@@ -126,7 +122,7 @@ def get_user_followers(username: str, db: Session = Depends(get_db)):
         )
 
     followers = db.query(User).join(Follow, Follow.follower_id == User.id).filter(
-        Follow.followed_id == user.id
+        Follow.following_id == user.id
     ).all()
     return followers
 
@@ -140,7 +136,7 @@ def get_user_following(username: str, db: Session = Depends(get_db)):
             detail="User not found"
         )
 
-    following = db.query(User).join(Follow, Follow.followed_id == User.id).filter(
+    following = db.query(User).join(Follow, Follow.following_id == User.id).filter(
         Follow.follower_id == user.id
     ).all()
     return following
