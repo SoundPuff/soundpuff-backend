@@ -45,7 +45,7 @@ class LoginRequest(BaseModel):
 
 @router.post(
     "/signup",
-    response_model=Token,
+    response_model=dict,
     status_code=status.HTTP_201_CREATED,
     summary="Sign up a new user",
     description="""
@@ -54,13 +54,14 @@ class LoginRequest(BaseModel):
     This endpoint will:
     1. Create a user in Supabase Auth (handles email/password securely)
     2. Create a user profile in the database
-    3. Return an access token for immediate use
+    3. Return an access token for immediate use when Supabase issues a session
 
-    **Note**: The username must be unique. Email validation is handled by Supabase.
+    If Supabase does not return a session (common when email confirmation is required),
+    the endpoint returns a 201 with an explanatory message instructing the user to confirm their email.
     """,
     responses={
         201: {
-            "description": "User created successfully",
+            "description": "User created successfully (may require email confirmation)",
             "content": {
                 "application/json": {
                     "example": {
@@ -101,11 +102,24 @@ def signup(
             "password": signup_data.password
         })
 
+        # If Supabase returned an explicit error, surface it
+        if getattr(auth_response, "error", None):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Signup error: {auth_response.error}"
+            )
+
         if not auth_response.user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to create user account"
             )
+
+        # Determine whether Supabase created a session and provided an access token
+        has_token = bool(
+            getattr(auth_response, "session", None)
+            and getattr(auth_response.session, "access_token", None)
+        )
 
         # Create user profile in our database
         user_id = UUID(auth_response.user.id)
@@ -117,16 +131,16 @@ def signup(
         db.commit()
         db.refresh(db_user)
 
-        # Return the access token
-        if not auth_response.session or not auth_response.session.access_token:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate access token"
-            )
+        # If Supabase returned a session/token, return it for immediate use
+        if has_token:
+            return {
+                "access_token": auth_response.session.access_token,
+                "token_type": "bearer"
+            }
 
+        # No session/token -> likely email confirmation required (common behavior)
         return {
-            "access_token": auth_response.session.access_token,
-            "token_type": "bearer"
+            "detail": "User created. Please confirm your email before logging in."
         }
 
     except HTTPException:
