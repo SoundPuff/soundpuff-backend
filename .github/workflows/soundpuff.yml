@@ -53,6 +53,8 @@ jobs:
         port: 22
         script: |
           set -e
+          # FIX: Add uv's directory to the script's PATH
+          export PATH="/home/deploy/.local/bin:$PATH"
 
           echo ">>> Ensuring directory exists"
           mkdir -p /var/www/soundpuff
@@ -72,7 +74,7 @@ jobs:
 
           echo ">>> Installing backend dependencies"
           cd backend
-          uv sync
+          uv sync  # This will now work
           cd ..
 
 
@@ -99,4 +101,5 @@ jobs:
           ######## SERVICE RESTART ########
           echo ">>> Restarting FastAPI"
           pkill -f "uvicorn app.main:app" || true
+          # This will also work now
           nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 > /var/www/soundpuff/backend/uvicorn.log 2>&1 &
