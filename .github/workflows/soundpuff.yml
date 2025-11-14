@@ -28,6 +28,7 @@ jobs:
       run: |
         cd frontend
         npm install
+        chmod +x ./node_modules/.bin/vite   # Fix permission
         npx vite build
 
     # 5. Setup Python for FastAPI
@@ -77,6 +78,7 @@ jobs:
           # Build frontend on server
           cd frontend
           npm install
+          chmod +x ./node_modules/.bin/vite   # Fix permission on server
           npx vite build
           cd ..
 
