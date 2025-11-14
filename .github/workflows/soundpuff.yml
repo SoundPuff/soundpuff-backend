@@ -28,7 +28,7 @@ jobs:
       run: |
         cd frontend
         npm install
-        npm run build
+        npx vite build
 
     # 5. Setup Python for FastAPI
     - uses: actions/setup-python@v4
@@ -74,10 +74,10 @@ jobs:
             cd ..
           fi
 
-          # Build frontend
+          # Build frontend on server
           cd frontend
           npm install
-          npm run build
+          npx vite build
           cd ..
 
           # Restart FastAPI
