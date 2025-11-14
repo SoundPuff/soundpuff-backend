@@ -11,7 +11,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    # -----------------------------
     # Frontend build
+    # -----------------------------
     - uses: actions/setup-node@v3
       with:
         node-version: 20
@@ -27,20 +29,21 @@ jobs:
         chmod +x node_modules/.bin/vite
         npx vite build
 
-    # Backend build
-    - uses: actions/setup-python@v4
-      with:
-        python-version: 3.12
-
-    - name: Install backend deps
+    # -----------------------------
+    # Backend build with uv
+    # -----------------------------
+    - name: Install uv
       run: |
-        cd backend
-        python -m venv venv
-        source venv/bin/activate
         pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install uv
 
-    # SSH deploy
+    - name: Install backend deps with uv
+      run: |
+        uv sync
+
+    # -----------------------------
+    # Deploy to server
+    # -----------------------------
     - name: Deploy to server
       uses: appleboy/ssh-action@v0.1.6
       with:
@@ -51,7 +54,7 @@ jobs:
         script: |
           cd /var/www/soundpuff
 
-          # Update backend code
+          # Clone backend first time
           if [ ! -d ".git" ]; then
             git clone https://github.com/SoundPuff/soundpuff-backend.git .
           else
@@ -59,13 +62,10 @@ jobs:
             git reset --hard origin/main
           fi
 
-          # Python env
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          # Backend: install with uv on server
+          uv sync
 
-          # Update frontend repo
+          # Frontend: update or clone
           if [ ! -d "frontend" ]; then
             git clone https://github.com/SoundPuff/SoundPuff-gui-v2.git frontend
           else
@@ -82,6 +82,6 @@ jobs:
           npx vite build
           cd ..
 
-          # Restart backend safely
-          pkill -f "uvicorn backend.main:app" || true
-          nohup venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
+          # Restart FastAPI
+          pkill -f "uvicorn app.main:app" || true
+          nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 &
