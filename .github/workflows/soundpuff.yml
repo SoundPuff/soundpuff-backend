@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout backend repo
+    # 1. Checkout backend repo (root)
     - uses: actions/checkout@v3
 
     # 2. Setup Node.js for frontend
@@ -36,10 +36,9 @@ jobs:
       with:
         python-version: '3.12'
 
-    # 6. Install backend dependencies
+    # 6. Install backend dependencies (repo root)
     - name: Install backend dependencies
       run: |
-        cd backend
         python -m venv venv
         source venv/bin/activate
         pip install --upgrade pip
@@ -78,10 +77,10 @@ jobs:
           # Build frontend on server
           cd frontend
           npm install
-          chmod +x ./node_modules/.bin/vite   # Fix permission on server
+          chmod +x ./node_modules/.bin/vite
           npx vite build
           cd ..
 
           # Restart FastAPI
-          pkill -f "uvicorn backend.main:app" || true
-          nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
+          pkill -f "uvicorn main:app" || true
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 &
