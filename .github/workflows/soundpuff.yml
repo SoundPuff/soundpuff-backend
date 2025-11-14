@@ -10,35 +10,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout repo
+    # 1. Checkout backend repo
     - uses: actions/checkout@v3
 
-    # Setup Node.js for Vite
+    # 2. Setup Node.js for frontend
     - uses: actions/setup-node@v3
       with:
         node-version: '20'
 
-    # Build frontend
-    - name: Build Vite frontend
-      working-directory: ./frontend
+    # 3. Clone frontend repo
+    - name: Clone frontend
+      run: |
+        git clone https://github.com/SoundPuff/SoundPuff-gui-v2.git frontend
+
+    # 4. Build frontend (Vite)
+    - name: Build frontend
+      working-directory: frontend
       run: |
         npm install
         npm run build
 
-    # Setup Python for FastAPI
+    # 5. Setup Python for FastAPI
     - uses: actions/setup-python@v4
       with:
         python-version: '3.12'
 
+    # 6. Install backend dependencies
     - name: Install backend dependencies
-      working-directory: ./backend
+      working-directory: backend
       run: |
         python -m venv venv
         source venv/bin/activate
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Deploy to server via SSH
+    # 7. Deploy to server via SSH
     - name: Deploy to server
       uses: appleboy/ssh-action@v0.1.6
       with:
@@ -48,22 +54,32 @@ jobs:
         port: 22
         script: |
           cd /var/www/soundpuff
+
+          # Update backend repo
           git fetch --all
           git reset --hard origin/main
 
-          # Backend
+          # Setup backend environment
           python3 -m venv venv
           source venv/bin/activate
           pip install -r requirements.txt
 
-          # Frontend
+          # Pull frontend repo
+          if [ ! -d "frontend" ]; then
+            git clone https://github.com/SoundPuff/SoundPuff-gui-v2.git frontend
+          else
+            cd frontend
+            git fetch --all
+            git reset --hard origin/main
+            cd ..
+          fi
+
+          # Build frontend
           cd frontend
           npm install
           npm run build
           cd ..
 
-          # Stop any running uvicorn process
-          pkill -f "uvicorn main:app" || true
-
-          # Start FastAPI app in background
+          # Restart FastAPI
+          pkill -f "uvicorn backend.main:app" || true
           nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
