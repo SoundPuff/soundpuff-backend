@@ -100,6 +100,6 @@ jobs:
 
           ######## SERVICE RESTART ########
           echo ">>> Restarting FastAPI"
-          pkill -f "uvicorn app.main:app" || true
+          pkill -f "[u]vicorn app.main:app" || true
           # This will also work now
           nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 > /var/www/soundpuff/backend/uvicorn.log 2>&1 &
