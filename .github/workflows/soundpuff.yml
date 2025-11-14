@@ -18,12 +18,19 @@ jobs:
       with:
         node-version: '20'
 
-    # 3. Clone frontend repo
+    # 3. Start ssh-agent and unlock passphrase-protected key
+    - name: Start ssh-agent
+      uses: webfactory/ssh-agent@v0.8.1
+      with:
+        ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+        ssh-passphrase: ${{ secrets.DEPLOY_KEY_PASSPHRASE }}
+
+    # 4. Clone frontend repo
     - name: Clone frontend
       run: |
         git clone https://github.com/SoundPuff/SoundPuff-gui-v2.git frontend
 
-    # 4. Build frontend (Vite)
+    # 5. Build frontend (Vite)
     - name: Build frontend
       run: |
         cd frontend
@@ -31,12 +38,12 @@ jobs:
         chmod +x ./node_modules/.bin/vite   # Fix permission
         npx vite build
 
-    # 5. Setup Python for FastAPI
+    # 6. Setup Python for FastAPI
     - uses: actions/setup-python@v4
       with:
         python-version: '3.12'
 
-    # 6. Install backend dependencies (repo root)
+    # 7. Install backend dependencies (repo root)
     - name: Install backend dependencies
       run: |
         python -m venv venv
@@ -44,7 +51,7 @@ jobs:
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    # 7. Deploy to server via SSH
+    # 8. Deploy to server via SSH
     - name: Deploy to server
       uses: appleboy/ssh-action@v0.1.6
       with:
