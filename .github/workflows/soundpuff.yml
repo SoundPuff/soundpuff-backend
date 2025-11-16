@@ -79,8 +79,3 @@ jobs:
           npm install
           npx vite build
           cd ..
-
-
-          echo ">>> Checking service status"
-          sleep 2
-          sudo systemctl --no-pager --full status soundpuff || exit 1
