@@ -80,10 +80,6 @@ jobs:
           npx vite build
           cd ..
 
-          ######## SERVICE RESTART ########
-          echo ">>> Restarting soundpuff.service"
-          sudo systemctl daemon-reload
-          sudo systemctl restart soundpuff
 
           echo ">>> Checking service status"
           sleep 2
