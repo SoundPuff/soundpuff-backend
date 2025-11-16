@@ -8,41 +8,21 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-    # Checkout backend
     - name: Checkout backend
       uses: actions/checkout@v4
-    
-    # Install Node (for building frontend)
+
     - uses: actions/setup-node@v4
       with:
         node-version: 20
-    
-    # Clone frontend repo
-    - name: Clone frontend
-      run: |
-        git clone https://github.com/SoundPuff/SoundPuff-gui-v2.git frontend
-    
-    # Build frontend
-    - name: Build frontend
-      working-directory: frontend
-      run: |
-        npm install
-        chmod +x node_modules/.bin/vite
-        npx vite build
-    
-    # Install Python for dependency resolution
-    - uses: actions/setup-python@v4
-      with:
-        python-version: "3.12"
-    
-    # Prepare backend dependencies (optional step to catch errors early)
+
+    # Optional: sanity check backend deps (never deploy a broken lockfile)
     - name: Backend sanity check
       run: |
         pip install uv
         uv pip install -r app/requirements.txt || true
-    
-    # Deploy via SSH
+
     - name: SSH deploy
       uses: appleboy/ssh-action@v0.1.10
       with:
@@ -52,21 +32,19 @@ jobs:
         port: 22
         script: |
           set -e
-          
-          # Add uv to PATH
+
           export PATH="/home/deploy/.local/bin:$PATH"
-          
-          # Verify uv is available
+
+          # Install uv if missing
           if ! command -v uv &> /dev/null; then
-            echo ">>> Installing uv"
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="/home/deploy/.local/bin:$PATH"
           fi
-          
-          echo ">>> Ensuring directory exists"
+
+          echo ">>> Preparing directory"
           mkdir -p /var/www/soundpuff
           cd /var/www/soundpuff
-          
+
           ######## BACKEND ########
           if [ ! -d "backend/.git" ]; then
             echo ">>> Cloning backend"
@@ -78,12 +56,12 @@ jobs:
             git reset --hard origin/main
             cd ..
           fi
-          
-          echo ">>> Installing backend dependencies"
+
+          echo ">>> Sync backend deps"
           cd backend
           uv sync
           cd ..
-          
+
           ######## FRONTEND ########
           if [ ! -d "frontend/.git" ]; then
             echo ">>> Cloning frontend"
@@ -95,31 +73,18 @@ jobs:
             git reset --hard origin/main
             cd ..
           fi
-          
+
           echo ">>> Building frontend"
           cd frontend
           npm install
-          chmod +x node_modules/.bin/vite
           npx vite build
           cd ..
-          
+
           ######## SERVICE RESTART ########
-          echo ">>> Stopping existing FastAPI process"
-          pkill -f "uvicorn app.main:app" || true
+          echo ">>> Restarting soundpuff.service"
+          sudo systemctl daemon-reload
+          sudo systemctl restart soundpuff
+
+          echo ">>> Checking service status"
           sleep 2
-          
-          echo ">>> Starting FastAPI"
-          cd /var/www/soundpuff/backend
-          nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 > /var/www/soundpuff/backend/uvicorn.log 2>&1 &
-          
-          echo ">>> Deployment complete"
-          sleep 2
-          
-          # Verify process is running
-          if pgrep -f "uvicorn app.main:app" > /dev/null; then
-            echo ">>> FastAPI is running"
-          else
-            echo ">>> ERROR: FastAPI failed to start"
-            tail -n 20 /var/www/soundpuff/backend/uvicorn.log
-            exit 1
-          fi
+          sudo systemctl --no-pager --full status soundpuff || exit 1
