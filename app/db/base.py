@@ -1,10 +1,9 @@
 # Import all models here for Alembic migrations
 from app.db.base_class import Base
+from app.models.association_tables import playlist_songs  # Import association tables first
 from app.models.user import User
-from app.models.auth_user import AuthUser
 from app.models.playlist import Playlist
 from app.models.song import Song
 from app.models.comment import Comment
 from app.models.like import Like
 from app.models.follow import Follow
-from app.models.playlist_songs import playlist_songs

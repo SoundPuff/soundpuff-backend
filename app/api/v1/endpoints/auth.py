@@ -1,55 +1,136 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from supabase import Client
+from pydantic import BaseModel, EmailStr
+from uuid import UUID
 
-from app.core.config import settings
+from app.core.deps import get_supabase_client
 from app.db.session import get_db
-from app.models.user import User
+from app.models import User  # Import from models package to ensure all models are loaded
 from app.schemas.token import Token
 from app.schemas.user import UserCreate, User as UserSchema
 
 router = APIRouter()
 
 
-@router.post("/signup", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
-def signup(user_in: UserCreate, db: Session = Depends(get_db)):
-    if not settings.supabase_client:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase client not configured"
-        )
-    
+class SignupRequest(BaseModel):
+    """Request schema for Supabase Auth signup"""
+    email: EmailStr
+    password: str
+    username: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "john.doe@example.com",
+                "password": "SecurePassword123!",
+                "username": "johndoe"
+            }
+        }
+
+
+class LoginRequest(BaseModel):
+    """Request schema for Supabase Auth login"""
+    email: EmailStr
+    password: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "john.doe@example.com",
+                "password": "SecurePassword123!"
+            }
+        }
+
+
+@router.post(
+    "/signup",
+    response_model=Token,
+    status_code=status.HTTP_201_CREATED,
+    summary="Sign up a new user",
+    description="""
+    Create a new user account with Supabase Auth.
+
+    This endpoint will:
+    1. Create a user in Supabase Auth (handles email/password securely)
+    2. Create a user profile in the database
+    3. Return an access token for immediate use
+
+    **Note**: The username must be unique. Email validation is handled by Supabase.
+    """,
+    responses={
+        201: {
+            "description": "User created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        400: {"description": "Username already taken or invalid email/password"}
+    }
+)
+def signup(
+    signup_data: SignupRequest,
+    db: Session = Depends(get_db),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Sign up with Supabase Auth and create a user profile.
+
+    Steps:
+    1. Create user in Supabase Auth (handles email/password)
+    2. Create user profile in our database
+    3. Return access token
+    """
     # Check if username already exists
-    user = db.query(User).filter(User.username == user_in.username).first()
-    if user:
+    existing_user = db.query(User).filter(User.username == signup_data.username).first()
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
+            detail="Username already taken"
         )
 
-    # Sign up with Supabase Auth
     try:
-        auth_response = settings.supabase_client.auth.sign_up({
-            "email": user_in.email,
-            "password": user_in.password
+        # Sign up with Supabase Auth
+        auth_response = supabase.auth.sign_up({
+            "email": signup_data.email,
+            "password": signup_data.password
         })
-        
+
         if not auth_response.user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to create user with Supabase"
+                detail="Failed to create user account"
             )
-        
-        # Create user profile in your database using Supabase user ID
+
+        # Create user profile in our database
+        user_id = UUID(auth_response.user.id)
         db_user = User(
-            id=auth_response.user.id,
-            username=user_in.username
+            id=user_id,
+            username=signup_data.username
         )
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-        return db_user
-        
+
+        # Return the access token
+        if not auth_response.session or not auth_response.session.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate access token"
+            )
+
+        return {
+            "access_token": auth_response.session.access_token,
+            "token_type": "bearer"
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -58,37 +139,64 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
         )
 
 
-@router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    if not settings.supabase_client:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase client not configured"
-        )
-    
+@router.post(
+    "/login",
+    response_model=Token,
+    summary="Login with email and password",
+    description="""
+    Authenticate with Supabase Auth and get an access token.
+
+    Use the returned token to access protected endpoints by:
+    1. Click the "Authorize" button at the top of this page
+    2. Enter the token in the format: `Bearer <your-token>`
+    3. Or include it in your request headers: `Authorization: Bearer <your-token>`
+    """,
+    responses={
+        200: {
+            "description": "Login successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "token_type": "bearer"
+                    }
+                }
+            }
+        },
+        401: {"description": "Invalid email or password"}
+    }
+)
+def login(
+    login_data: LoginRequest,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Login with Supabase Auth.
+
+    Returns an access token that can be used for authenticated requests.
+    """
     try:
-        # Login with Supabase Auth (username field contains email)
-        auth_response = settings.supabase_client.auth.sign_in_with_password({
-            "email": form_data.username,
-            "password": form_data.password
+        # Login with Supabase Auth
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": login_data.email,
+            "password": login_data.password
         })
-        
-        if not auth_response.session:
+
+        if not auth_response.session or not auth_response.session.access_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
-                headers={"WWW-Authenticate": "Bearer"},
+                detail="Invalid credentials"
             )
-        
-        # Return Supabase JWT token
+
         return {
             "access_token": auth_response.session.access_token,
             "token_type": "bearer"
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail=f"Login failed: {str(e)}"
         )

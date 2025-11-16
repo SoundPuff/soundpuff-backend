@@ -5,11 +5,7 @@ from typing import List
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.user import User
-from app.models.playlist import Playlist
-from app.models.like import Like
-from app.models.comment import Comment
-from app.models.follow import Follow
+from app.models import User, Playlist, Like, Comment, Follow
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
 from app.schemas.like import Like as LikeSchema
 from app.schemas.comment import Comment as CommentSchema, CommentCreate, CommentUpdate

@@ -1,11 +1,12 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from uuid import UUID
 from app.schemas.user import User
 
 
 class CommentBase(BaseModel):
-    content: str
+    body: str
 
 
 class CommentCreate(CommentBase):
@@ -13,15 +14,14 @@ class CommentCreate(CommentBase):
 
 
 class CommentUpdate(BaseModel):
-    content: str
+    body: str
 
 
 class CommentInDB(CommentBase):
     id: int
-    user_id: int
+    user_id: UUID
     playlist_id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

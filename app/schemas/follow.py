@@ -1,9 +1,10 @@
 from pydantic import BaseModel
 from datetime import datetime
+from uuid import UUID
 
 
 class FollowBase(BaseModel):
-    followed_id: int
+    following_id: UUID
 
 
 class FollowCreate(FollowBase):
@@ -11,8 +12,7 @@ class FollowCreate(FollowBase):
 
 
 class FollowInDB(FollowBase):
-    id: int
-    follower_id: int
+    follower_id: UUID
     created_at: datetime
 
     class Config:

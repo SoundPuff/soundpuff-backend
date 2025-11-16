@@ -5,10 +5,9 @@ from typing import List
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.user import User
-from app.models.follow import Follow
+from app.models import User, Follow
 from app.schemas.user import User as UserSchema, UserUpdate
-from app.schemas.follow import Follow as FollowSchema
+# Note: Follow schema is not needed for 204 responses
 
 router = APIRouter()
 
@@ -58,19 +57,26 @@ def follow_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
+    # Check if trying to follow self
+    if user_to_follow.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot follow yourself"
+        )
+
     # Check if already following
     existing_follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
         Follow.following_id == user_to_follow.id
     ).first()
-    
+
     if existing_follow:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already following this user"
         )
-    
+
     # Create follow relationship
     follow = Follow(
         follower_id=current_user.id,
@@ -94,19 +100,19 @@ def unfollow_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     # Find and delete follow relationship
     follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
         Follow.following_id == user_to_unfollow.id
     ).first()
-    
+
     if not follow:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not following this user"
         )
-    
+
     db.delete(follow)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

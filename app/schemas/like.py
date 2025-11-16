@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
+from uuid import UUID
 
 
 class LikeBase(BaseModel):
@@ -11,8 +12,7 @@ class LikeCreate(LikeBase):
 
 
 class LikeInDB(LikeBase):
-    id: int
-    user_id: int
+    user_id: UUID
     created_at: datetime
 
     class Config:
