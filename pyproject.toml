@@ -26,4 +26,6 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=7.0",
+]
