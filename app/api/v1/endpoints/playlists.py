@@ -49,7 +49,7 @@ def create_playlist(
 ):
     playlist = Playlist(
         **playlist_in.dict(),
-        owner_id=current_user.id
+        user_id=current_user.id
     )
     db.add(playlist)
     db.commit()
@@ -83,7 +83,7 @@ def update_playlist(
         )
 
     # Check ownership
-    if playlist.owner_id != current_user.id:
+    if playlist.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this playlist"
@@ -116,7 +116,7 @@ def delete_playlist(
         )
 
     # Check ownership
-    if playlist.owner_id != current_user.id:
+    if playlist.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this playlist"
