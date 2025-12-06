@@ -99,8 +99,7 @@ def update_playlist(
         playlist.title = playlist_in.title
     if playlist_in.description is not None:
         playlist.description = playlist_in.description
-    if playlist_in.cover_image_url is not None:
-        playlist.cover_image_url = playlist_in.cover_image_url
+    # Removed cover image handling (no longer supported)
 
     db.commit()
     db.refresh(playlist)

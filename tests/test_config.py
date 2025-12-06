@@ -18,12 +18,12 @@ def make_settings(**overrides) -> Settings:
 
 def test_cors_origins_are_split_into_list():
     settings = make_settings(
-        BACKEND_CORS_ORIGINS="http://localhost:3000,http://example.com",
+        BACKEND_CORS_ORIGINS="http://localhost:3000,http://soundpuff.ozten.app",
     )
 
     assert [str(origin) for origin in settings.BACKEND_CORS_ORIGINS] == [
         "http://localhost:3000/",
-        "http://example.com/",
+        "http://soundpuff.ozten.app/",
     ]
 
 

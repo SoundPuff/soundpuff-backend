@@ -9,7 +9,6 @@ from app.schemas.song import Song
 class PlaylistBase(BaseModel):
     title: str
     description: Optional[str] = None
-    cover_image_url: Optional[str] = None
 
 
 class PlaylistCreate(PlaylistBase):
@@ -19,7 +18,7 @@ class PlaylistCreate(PlaylistBase):
 class PlaylistUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    cover_image_url: Optional[str] = None
+    
 
 
 class PlaylistInDB(PlaylistBase):
