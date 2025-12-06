@@ -31,11 +31,16 @@ def read_feed(
     current_user: User = Depends(get_current_user)
 ):
     # Get playlists from followed users
-    following_ids = db.query(Follow.followed_id).filter(Follow.follower_id == current_user.id).all()
+    following_ids = db.query(Follow.following_id).filter(
+        Follow.follower_id == current_user.id
+    ).all()
     following_ids = [f[0] for f in following_ids]
 
+    if not following_ids:
+        return []
+
     playlists = db.query(Playlist).filter(
-        Playlist.owner_id.in_(following_ids)
+        Playlist.user_id.in_(following_ids)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
     return playlists
