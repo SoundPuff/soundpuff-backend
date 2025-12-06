@@ -213,7 +213,7 @@ def create_comment(
         )
 
     comment = Comment(
-        content=comment_in.content,
+        body=comment_in.body,
         user_id=current_user.id,
         playlist_id=playlist_id
     )
@@ -244,7 +244,7 @@ def update_comment(
             detail="Not authorized to update this comment"
         )
 
-    comment.content = comment_in.content
+    comment.body = comment_in.body
     db.commit()
     db.refresh(comment)
     return comment
