@@ -13,8 +13,7 @@ from app.models import User
 
 # Use HTTPBearer instead of OAuth2PasswordBearer since we're using Supabase Auth
 security = HTTPBearer()
-security_optional = HTTPBearer(auto_error=False)
-
+optional_security = HTTPBearer(auto_error=False)
 
 def get_supabase_client() -> Client:
     """Dependency to get Supabase client"""
@@ -69,34 +68,49 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-
 def get_current_user_optional(
     db: Session = Depends(get_db),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
     supabase: Client = Depends(get_supabase_client)
 ) -> Optional[User]:
     """
-    Optionally verify Supabase JWT token and return the current user.
-    Returns None if no valid token is provided (for public endpoints that behave differently for authenticated users).
+    Return the current user if a valid token is provided, otherwise None.
     """
     if credentials is None:
         return None
 
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     token = credentials.credentials
 
     try:
-        # Verify the token with Supabase
         user_response = supabase.auth.get_user(token)
 
         if not user_response or not user_response.user:
-            return None
+            raise credentials_exception
 
         supabase_user = user_response.user
         user_id = UUID(supabase_user.id)
 
-        # Get user from our database
         user = db.query(User).filter(User.id == user_id).first()
+
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found. Please create a profile first."
+            )
+
         return user
 
-    except Exception:
-        return None
+    except ValueError:
+        raise credentials_exception
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication credentials: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
