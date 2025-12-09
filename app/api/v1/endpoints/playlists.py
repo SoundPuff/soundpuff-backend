@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from typing import List
 
 from app.core.deps import get_current_user
@@ -160,8 +161,15 @@ def like_playlist(
     # Create like
     like = Like(user_id=current_user.id, playlist_id=playlist_id)
     db.add(like)
-    db.commit()
-    db.refresh(like)
+    try:
+        db.commit()
+        db.refresh(like)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Already liked this playlist"
+        )
     return like
 
 
