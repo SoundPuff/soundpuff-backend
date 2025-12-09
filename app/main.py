@@ -22,6 +22,10 @@ tags_metadata = [
         "name": "Playlists",
         "description": "Create, manage, and discover music playlists. Like, comment, and add songs to playlists.",
     },
+    {
+        "name": "Songs",
+        "description": "Search and discover songs available in the catalog.",
+    },
 ]
 
 app = FastAPI(
