@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from typing import List
+from sqlalchemy import desc, or_
+from typing import List, Optional
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_optional
 from app.db.session import get_db
 from app.models import User, Playlist, Like, Comment, Follow
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
@@ -13,13 +13,29 @@ from app.schemas.comment import Comment as CommentSchema, CommentCreate, Comment
 router = APIRouter()
 
 
+def _ensure_playlist_accessible(playlist: Playlist, current_user: Optional[User]):
+    if playlist.privacy == "private" and (current_user is None or playlist.user_id != current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This playlist is private"
+        )
+
+
 @router.get("/", response_model=List[PlaylistSchema])
 def read_playlists(
     skip: int = 0,
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    playlists = db.query(Playlist).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
+    query = db.query(Playlist)
+
+    if current_user is None:
+        query = query.filter(Playlist.privacy == "public")
+    else:
+        query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
+
+    playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
     return playlists
 
 
@@ -41,6 +57,8 @@ def read_feed(
 
     playlists = db.query(Playlist).filter(
         Playlist.user_id.in_(following_ids)
+    ).filter(
+        or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
     return playlists
@@ -63,13 +81,18 @@ def create_playlist(
 
 
 @router.get("/{playlist_id}", response_model=PlaylistSchema)
-def read_playlist(playlist_id: int, db: Session = Depends(get_db)):
+def read_playlist(
+    playlist_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Playlist not found"
         )
+    _ensure_playlist_accessible(playlist, current_user)
     return playlist
 
 
@@ -99,6 +122,8 @@ def update_playlist(
         playlist.title = playlist_in.title
     if playlist_in.description is not None:
         playlist.description = playlist_in.description
+    if playlist_in.privacy is not None:
+        playlist.privacy = playlist_in.privacy
     # Removed cover image handling (no longer supported)
 
     db.commit()
@@ -145,6 +170,8 @@ def like_playlist(
             detail="Playlist not found"
         )
 
+    _ensure_playlist_accessible(playlist, current_user)
+
     # Check if already liked
     existing_like = db.query(Like).filter(
         Like.user_id == current_user.id,
@@ -189,7 +216,20 @@ def unlike_playlist(
 
 
 @router.get("/{playlist_id}/comments", response_model=List[CommentSchema])
-def read_playlist_comments(playlist_id: int, db: Session = Depends(get_db)):
+def read_playlist_comments(
+    playlist_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playlist not found"
+        )
+
+    _ensure_playlist_accessible(playlist, current_user)
+
     comments = db.query(Comment).filter(
         Comment.playlist_id == playlist_id
     ).order_by(desc(Comment.created_at)).all()
@@ -210,6 +250,8 @@ def create_comment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Playlist not found"
         )
+
+    _ensure_playlist_accessible(playlist, current_user)
 
     comment = Comment(
         body=comment_in.body,
