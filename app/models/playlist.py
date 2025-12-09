@@ -12,6 +12,7 @@ class Playlist(Base):
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
     title = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
+    privacy = Column(String(20), nullable=False, server_default="public", default="public")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
