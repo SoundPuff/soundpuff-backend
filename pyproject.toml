@@ -16,6 +16,7 @@ dependencies = [
     "alembic>=1.12.1",
     "psycopg2-binary>=2.9.9",
     "supabase>=2.6.0",
+    "kagglehub>=0.2.9",
 ]
 
 [build-system]
