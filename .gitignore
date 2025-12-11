@@ -46,6 +46,9 @@ uv.lock
 # Alembic
 alembic/versions/*.pyc
 
+# Data downloads
+data/
+
 # OS
 .DS_Store
 Thumbs.db

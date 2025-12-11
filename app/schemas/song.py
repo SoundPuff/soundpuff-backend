@@ -1,5 +1,5 @@
+from typing import List, Optional
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
 
 
@@ -24,3 +24,10 @@ class SongInDB(SongBase):
 
 class Song(SongInDB):
     pass
+
+class SongListResponse(BaseModel):
+    total: int
+    songs: List[Song]
+
+    class Config:
+        from_attributes = True

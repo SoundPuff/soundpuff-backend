@@ -193,8 +193,67 @@ The API will be available at `http://localhost:8000`
 - `DELETE /api/v1/playlists/comments/{comment_id}` - Delete comment
 
 ### Songs
-
 - `GET /api/v1/songs/search` - Search songs by title or artist
+
+## Importing the Kaggle song dataset
+
+The API ships with endpoints for reading song data, but you need to seed the
+database first. The project includes a helper script to ingest the
+[Songs dataset](https://www.kaggle.com/datasets/jashanjeetsinghhh/songs-) from Kaggle.
+
+1. Install the Kaggle CLI (if you do not already have it):
+
+   ```bash
+   uv run pip install kaggle
+   ```
+
+2. Authenticate the CLI by placing your `kaggle.json` API token in
+   `~/.kaggle/kaggle.json`. See the [Kaggle docs](https://www.kaggle.com/docs/api)
+   for details.
+
+3. Download and unzip the dataset (store it locally; do **not** commit the CSV/ZIP to the repo):
+
+   ```bash
+   kaggle datasets download jashanjeetsinghhh/songs- -p data/
+   unzip "data/songs-.zip" -d data/
+   ```
+
+   Alternatively, you can use the [KaggleHub](https://pypi.org/project/kagglehub/)
+   helper to download the dataset without the CLI:
+
+   ```bash
+   uv run pip install kagglehub
+   uv run python - <<'PY'
+   from pathlib import Path
+
+   import kagglehub
+
+   dataset_dir = Path(kagglehub.dataset_download("jashanjeetsinghhh/songs-dataset"))
+   print(f"Downloaded to: {dataset_dir}")
+   print("Use --dataset with this path (directory or contained CSV/ZIP) when importing.")
+   PY
+   ```
+
+4. Import the songs into your configured database (make sure your `.env`
+   points at a reachable Postgres instance):
+
+   ```bash
+   uv run python scripts/import_songs.py --dataset data/songs-.csv
+   ```
+
+   If you keep the dataset compressed, provide the CSV name inside the ZIP:
+
+   ```bash
+   uv run python scripts/import_songs.py --dataset data/songs-.zip --csv-name songs.csv
+   ```
+
+   If you downloaded with KaggleHub, point `--dataset` at the printed directory or
+   directly at the discovered CSV/ZIP. For example, if the download was stored in
+   `~/.cache/kagglehub/datasets/jashanjeetsinghhh/songs-dataset/latest/`, you can run:
+
+   ```bash
+   uv run python scripts/import_songs.py --dataset ~/.cache/kagglehub/datasets/jashanjeetsinghhh/songs-dataset/latest/
+   ```
 
 ## Database Schema
 
