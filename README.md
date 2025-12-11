@@ -193,8 +193,6 @@ The API will be available at `http://localhost:8000`
 - `DELETE /api/v1/playlists/comments/{comment_id}` - Delete comment
 
 ### Songs
-- `GET /api/v1/songs/` - List songs with pagination
-- `GET /api/v1/songs/{song_id}` - Get a song by ID
 - `GET /api/v1/songs/search` - Search songs by title or artist
 
 ## Importing the Kaggle song dataset

@@ -1,63 +1,24 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
+from typing import Optional
 
-from app.core.deps import get_current_user, get_current_user_optional
+from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models import Playlist, Song, User
-from app.schemas.song import Song as SongSchema, SongListResponse
+from app.models import Song, User, Playlist
 from app.schemas.search import (
-    
-    PlaylistSearchResult,
-    PlaylistSearchResults,
-    SearchResults,
-    SearchType,
-    SongSearchResult,
+    SongSearchResult, 
     SongSearchResults,
     UserSearchResult,
     UserSearchResults,
+    PlaylistSearchResult,
+    PlaylistSearchResults,
+    SearchResults,
+    SearchType
 )
 
 
 router = APIRouter()
-
-# ==================== SONGS ====================
-
-
-@router.get("/", response_model=SongListResponse)
-def read_songs(
-    skip: int = Query(0, ge=0, description="Number of songs to skip"),
-    limit: int = Query(20, ge=1, le=100, description="Maximum number of songs to return"),
-    db: Session = Depends(get_db),
-):
-    """Return a paginated list of songs ordered by newest first."""
-
-    base_query = db.query(Song).order_by(desc(Song.created_at))
-    total = base_query.count()
-    songs = base_query.offset(skip).limit(limit).all()
-
-    return SongListResponse(total=total, songs=songs)
-
-
-@router.get("/{song_id}", response_model=SongSchema)
-def read_song(
-    song_id: int,
-    db: Session = Depends(get_db),
-):
-    """Fetch a single song by its id."""
-
-    song = db.query(Song).filter(Song.id == song_id).first()
-
-    if not song:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Song not found",
-        )
-
-    return song
-
 
 
 # ==================== SONG SEARCH ====================
@@ -68,11 +29,11 @@ def search_songs(
     limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Search songs by title or artist using a case-insensitive partial match.
-    Authentication is optional.
+    Requires authentication.
     
     - **query**: Search term (e.g., "ar" matches "artist", "guitar", etc.)
     - **limit**: Maximum results to return (default: 20, max: 100)
@@ -162,7 +123,7 @@ def search_playlists(
     base_query = base_query.filter(
         or_(
             Playlist.privacy == "public",
-            Playlist.user_id == current_user.id,
+            Playlist.user_id == current_user.id
         )
     )
 
@@ -182,9 +143,7 @@ def search_playlists(
 @router.get("/all", response_model=SearchResults)
 def search_all(
     query: str = Query(..., min_length=1, description="Search query"),
-    type: SearchType = Query(
-        SearchType.ALL, description="Type of search: all, users, songs, or playlists"
-    ),
+    type: SearchType = Query(SearchType.ALL, description="Type of search: all, users, songs, or playlists"),
     limit: int = Query(10, ge=1, le=50, description="Maximum results per category"),
     offset: int = Query(0, ge=0, description="Number of results to skip per category"),
     db: Session = Depends(get_db),
@@ -215,9 +174,7 @@ def search_all(
         )
         user_query = db.query(User).filter(user_filter)
         total_users = user_query.count()
-        user_list = (
-            user_query.order_by(desc(User.created_at)).offset(offset).limit(limit).all()
-        )
+        user_list = user_query.order_by(desc(User.created_at)).offset(offset).limit(limit).all()
         users = [UserSearchResult(user=user) for user in user_list]
 
     # Search Songs
@@ -228,9 +185,7 @@ def search_all(
         )
         song_query = db.query(Song).filter(song_filter)
         total_songs = song_query.count()
-        song_list = (
-            song_query.order_by(desc(Song.created_at)).offset(offset).limit(limit).all()
-        )
+        song_list = song_query.order_by(desc(Song.created_at)).offset(offset).limit(limit).all()
         songs = [SongSearchResult(song=song) for song in song_list]
 
     # Search Playlists
@@ -243,13 +198,14 @@ def search_all(
         
         # Show public + user's own private playlists
         playlist_query = playlist_query.filter(
-            or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
+            or_(
+                Playlist.privacy == "public",
+                Playlist.user_id == current_user.id
+            )
         )
         
         total_playlists = playlist_query.count()
-        playlist_list = (
-            playlist_query.order_by(desc(Playlist.created_at)).offset(offset).limit(limit).all()
-        )
+        playlist_list = playlist_query.order_by(desc(Playlist.created_at)).offset(offset).limit(limit).all()
         playlists = [PlaylistSearchResult(playlist=playlist) for playlist in playlist_list]
 
     return SearchResults(
@@ -259,5 +215,5 @@ def search_all(
         playlists=playlists,
         total_users=total_users,
         total_songs=total_songs,
-        total_playlists=total_playlists,
+        total_playlists=total_playlists
     )
