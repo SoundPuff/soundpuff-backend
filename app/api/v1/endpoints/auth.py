@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from supabase import Client
 from pydantic import BaseModel, EmailStr
@@ -7,10 +8,11 @@ from uuid import UUID
 from app.core.deps import get_supabase_client
 from app.db.session import get_db
 from app.models import User  # Import from models package to ensure all models are loaded
-from app.schemas.token import Token
+from app.schemas.token import Token, TokenRefresh
 from app.schemas.user import UserCreate, User as UserSchema
 
 router = APIRouter()
+security = HTTPBearer()
 
 
 class SignupRequest(BaseModel):
@@ -80,9 +82,13 @@ class PasswordResetConfirm(BaseModel):
     This endpoint will:
     1. Create a user in Supabase Auth (handles email/password securely)
     2. Create a user profile in the database
-    3. Return an access token for immediate use
+    3. Return access and refresh tokens for immediate use
 
     **Note**: The username must be unique. Email validation is handled by Supabase.
+    
+    **Token Usage**:
+    - `access_token`: Use for authenticated requests (expires in ~1 hour)
+    - `refresh_token`: Use to get new tokens when access token expires
     """,
     responses={
         201: {
@@ -91,7 +97,9 @@ class PasswordResetConfirm(BaseModel):
                 "application/json": {
                     "example": {
                         "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-                        "token_type": "bearer"
+                        "refresh_token": "v1.MjQ0ZjJkNGItZjRjMy00...",
+                        "token_type": "bearer",
+                        "expires_in": 3600
                     }
                 }
             }
@@ -152,7 +160,9 @@ def signup(
 
         return {
             "access_token": auth_response.session.access_token,
-            "token_type": "bearer"
+            "refresh_token": auth_response.session.refresh_token,
+            "token_type": "bearer",
+            "expires_in": auth_response.session.expires_in
         }
 
     except HTTPException:
@@ -170,12 +180,16 @@ def signup(
     response_model=Token,
     summary="Login with email and password",
     description="""
-    Authenticate with Supabase Auth and get an access token.
+    Authenticate with Supabase Auth and get access and refresh tokens.
 
-    Use the returned token to access protected endpoints by:
-    1. Click the "Authorize" button at the top of this page
-    2. Enter the token in the format: `Bearer <your-token>`
-    3. Or include it in your request headers: `Authorization: Bearer <your-token>`
+    Use the returned tokens as follows:
+    - `access_token`: Include in request headers as `Authorization: Bearer <token>`
+    - `refresh_token`: Use with `/auth/refresh` endpoint when access token expires
+    
+    **Token Lifecycle**:
+    - Access tokens expire in ~1 hour
+    - Refresh tokens are long-lived but rotated on each use
+    - When access token expires, use refresh token to get new tokens
     """,
     responses={
         200: {
@@ -184,7 +198,9 @@ def signup(
                 "application/json": {
                     "example": {
                         "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-                        "token_type": "bearer"
+                        "refresh_token": "v1.MjQ0ZjJkNGItZjRjMy00...",
+                        "token_type": "bearer",
+                        "expires_in": 3600
                     }
                 }
             }
@@ -216,7 +232,9 @@ def login(
 
         return {
             "access_token": auth_response.session.access_token,
-            "token_type": "bearer"
+            "refresh_token": auth_response.session.refresh_token,
+            "token_type": "bearer",
+            "expires_in": auth_response.session.expires_in
         }
 
     except HTTPException:
@@ -225,6 +243,75 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Login failed: {str(e)}"
+        )
+
+
+@router.post(
+    "/refresh",
+    response_model=Token,
+    summary="Refresh access token",
+    description="""
+    Get new access and refresh tokens using a valid refresh token.
+
+    **Token Rotation**: Each time you refresh:
+    - A new access token is issued
+    - A new refresh token is issued (old one becomes invalid)
+    - Store the new refresh token for future use
+
+    **When to use**:
+    - When access token expires (401 Unauthorized response)
+    - Proactively before expiry using `expires_in` from login response
+    """,
+    responses={
+        200: {
+            "description": "Tokens refreshed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "refresh_token": "v1.MjQ0ZjJkNGItZjRjMy00...",
+                        "token_type": "bearer",
+                        "expires_in": 3600
+                    }
+                }
+            }
+        },
+        401: {"description": "Invalid or expired refresh token"}
+    }
+)
+def refresh_token(
+    token_data: TokenRefresh,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Refresh the access token using a refresh token.
+
+    Supabase handles token rotation automatically - each refresh
+    invalidates the old refresh token and issues a new one.
+    """
+    try:
+        # Refresh the session with Supabase
+        auth_response = supabase.auth.refresh_session(token_data.refresh_token)
+
+        if not auth_response.session or not auth_response.session.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token"
+            )
+
+        return {
+            "access_token": auth_response.session.access_token,
+            "refresh_token": auth_response.session.refresh_token,
+            "token_type": "bearer",
+            "expires_in": auth_response.session.expires_in
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token refresh failed: {str(e)}"
         )
 
 
@@ -367,4 +454,73 @@ def confirm_password_reset(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Password reset failed: {str(e)}"
+        )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_200_OK,
+    summary="Logout and invalidate tokens",
+    description="""
+    Logout the current user and invalidate all their tokens.
+
+    This endpoint will:
+    1. Revoke the current session
+    2. Invalidate the access token
+    3. Invalidate all refresh tokens for this session
+
+    **After logout**:
+    - The access token will no longer work
+    - The refresh token will no longer work
+    - User must login again to get new tokens
+    """,
+    responses={
+        200: {
+            "description": "Logout successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Successfully logged out"
+                    }
+                }
+            }
+        },
+        401: {"description": "Invalid or missing token"}
+    }
+)
+def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Logout and invalidate the current session.
+
+    Revokes the session in Supabase, making all tokens for this session invalid.
+    """
+    try:
+        token = credentials.credentials
+        
+        # First, get the user to verify the token and set the session
+        user_response = supabase.auth.get_user(token)
+        
+        if not user_response or not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+        
+        # Sign out from Supabase with scope 'global' to revoke all sessions
+        # or 'local' to revoke only the current session
+        supabase.auth.sign_out({"scope": "global"})
+
+        return {
+            "message": "Successfully logged out"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Logout failed: {str(e)}"
         )
