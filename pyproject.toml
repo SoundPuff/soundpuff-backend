@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.8,<3.13"
 dependencies = [
     "fastapi>=0.104.1",
+    "httpx<0.28",
     "uvicorn[standard]>=0.24.0",
     "sqlalchemy>=2.0.23",
     "pydantic[email]>=2.5.0",
