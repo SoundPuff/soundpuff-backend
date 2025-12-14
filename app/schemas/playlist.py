@@ -39,3 +39,11 @@ class Playlist(PlaylistInDB):
     songs: List[Song] = []
     likes_count: int = 0
     comments_count: int = 0
+
+
+class PlaylistAddSong(BaseModel):
+    song_id: int
+    # Pydantic v2 configuration for additional JSON schema info
+    model_config = {
+        "json_schema_extra": {"example": {"song_id": 123}}
+    }
