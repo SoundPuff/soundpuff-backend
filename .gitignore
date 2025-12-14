@@ -26,7 +26,6 @@ wheels/
 
 # uv
 .python-version
-uv.lock
 
 # Environment variables
 .env
