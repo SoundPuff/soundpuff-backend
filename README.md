@@ -162,6 +162,20 @@ The API will be available at `http://localhost:8000`
 
 ## API Endpoints
 
+## Testing
+
+See `tests/README.md` for full testing documentation and coverage details.
+
+Quick commands:
+
+```bash
+# Run the full test suite
+uv run pytest -q tests/
+
+# Run a single test file
+uv run pytest -q tests/test_songs.py
+```
+
 ### Authentication
 
 - `POST /api/v1/auth/signup` - Register a new user
