@@ -10,6 +10,8 @@ from app.core.deps import get_current_user, get_current_user_optional
 from app.db.session import get_db
 from app.models import User, Playlist, Like, Comment, Follow
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
+from app.schemas.playlist import PlaylistAddSong
+from app.models import Song
 from app.schemas.like import Like as LikeSchema
 from app.schemas.comment import Comment as CommentSchema, CommentCreate, CommentUpdate
 
@@ -271,6 +273,50 @@ def create_comment(
     db.commit()
     db.refresh(comment)
     return comment
+
+
+@router.post("/{playlist_id}/songs", response_model=PlaylistSchema, status_code=status.HTTP_201_CREATED)
+def add_song_to_playlist(
+    playlist_id: int,
+    payload: PlaylistAddSong,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Check if playlist exists
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playlist not found"
+        )
+
+    # Only playlist owner may add songs
+    if playlist.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to add songs to this playlist"
+        )
+
+    # Check if song exists
+    song = db.query(Song).filter(Song.id == payload.song_id).first()
+    if not song:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Song not found"
+        )
+
+    # Check for duplicates
+    if any(s.id == song.id for s in playlist.songs):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Song already in playlist"
+        )
+
+    # Add song to playlist
+    playlist.songs.append(song)
+    db.commit()
+    db.refresh(playlist)
+    return playlist
 
 
 @router.put("/comments/{comment_id}", response_model=CommentSchema)
