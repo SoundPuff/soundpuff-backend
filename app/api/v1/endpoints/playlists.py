@@ -319,6 +319,42 @@ def add_song_to_playlist(
     return playlist
 
 
+@router.delete("/{playlist_id}/songs/{song_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_song_from_playlist(
+    playlist_id: int,
+    song_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Check if playlist exists
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playlist not found"
+        )
+
+    # Only playlist owner may remove songs
+    if playlist.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to remove songs from this playlist"
+        )
+
+    # Check if song is in the playlist
+    song = next((s for s in playlist.songs if s.id == song_id), None)
+    if not song:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Song not found in playlist"
+        )
+
+    # Remove song
+    playlist.songs.remove(song)
+    db.commit()
+    return None
+
+
 @router.put("/comments/{comment_id}", response_model=CommentSchema)
 def update_comment(
     comment_id: int,

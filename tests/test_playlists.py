@@ -646,6 +646,59 @@ def test_add_song_no_auth(client, public_playlist, test_song):
     assert resp.status_code == 403
 
 
+# ==================== DELETE /{playlist_id}/songs/{song_id} tests ====================
+
+
+def test_remove_song_from_playlist_success(client, current_user, public_playlist, test_song, db_session):
+    """Test removing a song from a playlist by owner."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    # Add song to playlist first
+    public_playlist.songs.append(test_song)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/playlists/{public_playlist.id}/songs/{test_song.id}")
+    assert resp.status_code == 204
+
+    # Verify removed from DB
+    playlist = db_session.query(Playlist).filter(Playlist.id == public_playlist.id).first()
+    assert len(playlist.songs) == 0
+
+
+def test_remove_song_from_playlist_not_owner(client, current_user, other_user, db_session, test_song):
+    """Test that non-owner cannot remove songs."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    other_playlist = _create_playlist(db_session, other_user, "Other's Playlist")
+    other_playlist.songs.append(test_song)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/playlists/{other_playlist.id}/songs/{test_song.id}")
+    assert resp.status_code == 403
+
+
+def test_remove_song_not_in_playlist(client, current_user, public_playlist, test_song):
+    """Test removing a song that isn't in the playlist returns 404."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.delete(f"/api/v1/playlists/{public_playlist.id}/songs/{test_song.id}")
+    assert resp.status_code == 404
+
+
+def test_remove_song_playlist_not_found(client, current_user, test_song):
+    """Test removing a song from nonexistent playlist returns 404."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.delete(f"/api/v1/playlists/99999/songs/{test_song.id}")
+    assert resp.status_code == 404
+
+
+def test_remove_song_no_auth(client, public_playlist, test_song):
+    """Test that removing songs requires auth."""
+    resp = client.delete(f"/api/v1/playlists/{public_playlist.id}/songs/{test_song.id}")
+    assert resp.status_code == 403
+
+
 # ==================== GET /{playlist_id}/comments tests ====================
 
 
