@@ -1,10 +1,9 @@
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 from typing import List, Optional
-from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
-from typing import List
 
 from app.core.deps import get_current_user, get_current_user_optional
 from app.db.session import get_db
@@ -66,6 +65,34 @@ def read_feed(
         or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
+    return playlists
+
+
+@router.get("/user/{user_id}", response_model=List[PlaylistSchema])
+def read_playlists_for_user(
+    user_id: UUID,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Read playlists for a specific user.
+
+    - Returns **public** playlists for the requested user to anyone.
+    - If the requester is the same user, includes their **private** playlists as well.
+    """
+    # Ensure user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    query = db.query(Playlist).filter(Playlist.user_id == user_id)
+
+    # If requester is not the owner, only show public playlists
+    if current_user is None or current_user.id != user_id:
+        query = query.filter(Playlist.privacy == "public")
+
+    playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
     return playlists
 
 

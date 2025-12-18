@@ -247,6 +247,62 @@ def test_read_feed_doesnt_show_private_from_followed(client, current_user, other
     assert resp.json() == []
 
 
+# ==================== GET /user/{user_id} tests ====================
+
+def test_read_user_playlists_public_only_unauthenticated(client, other_user, db_session):
+    """Unauthenticated users see only public playlists for a given user."""
+    public = _create_playlist(db_session, other_user, "Other Public", "", "public")
+    private = _create_playlist(db_session, other_user, "Other Private", "", "private")
+
+    resp = client.get(f"/api/v1/playlists/user/{other_user.id}")
+    assert resp.status_code == 200
+    playlists = resp.json()
+    assert len(playlists) == 1
+    assert playlists[0]["privacy"] == "public"
+
+
+def test_read_user_playlists_owner_sees_private_and_public(client, current_user, db_session):
+    """Owner can see both public and private playlists."""
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+
+    public = _create_playlist(db_session, current_user, "Owner Public", "", "public")
+    private = _create_playlist(db_session, current_user, "Owner Private", "", "private")
+
+    resp = client.get(f"/api/v1/playlists/user/{current_user.id}")
+    assert resp.status_code == 200
+    playlists = resp.json()
+    titles = {p["title"] for p in playlists}
+    assert titles == {"Owner Public", "Owner Private"}
+
+
+def test_read_user_playlists_authenticated_non_owner_sees_only_public(client, current_user, other_user, db_session):
+    """Authenticated non-owner should only see public playlists of other users."""
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+
+    public = _create_playlist(db_session, other_user, "Other Public 2", "", "public")
+    private = _create_playlist(db_session, other_user, "Other Private 2", "", "private")
+
+    resp = client.get(f"/api/v1/playlists/user/{other_user.id}")
+    assert resp.status_code == 200
+    playlists = resp.json()
+    assert all(p["privacy"] == "public" for p in playlists)
+    assert len(playlists) == 1
+
+
+def test_read_user_playlists_user_not_found(client):
+    import uuid as _uuid
+    nonexist = _uuid.uuid4()
+    resp = client.get(f"/api/v1/playlists/user/{nonexist}")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "User not found"
+
+
+def test_read_user_playlists_invalid_uuid_returns_422(client):
+    """Invalid UUID in path should produce 422 Unprocessable Entity."""
+    resp = client.get("/api/v1/playlists/user/not-a-uuid")
+    assert resp.status_code == 422
+
+
 # ==================== POST / (create playlist) tests ====================
 
 
