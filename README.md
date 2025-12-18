@@ -68,7 +68,7 @@ soundpuff-backend/
 
 ### Prerequisites
 
-- Python 3.8-3.12
+- Python 3.8-3.12 
 - PostgreSQL 12+ (for local development)
 - [Supabase](https://supabase.com) account (for production database)
 - [uv](https://docs.astral.sh/uv/) - Fast Python package installer
