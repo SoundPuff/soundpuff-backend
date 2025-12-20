@@ -196,6 +196,49 @@ def test_list_playlists_pagination(client, current_user, db_session):
     assert len(resp.json()) == 2
 
 
+def test_boolean_privacy_is_normalized_to_private(client, db_session, current_user):
+    """Legacy boolean False privacy should be normalized to 'private' in responses."""
+    # Insert playlist with boolean False privacy directly in DB
+    playlist = Playlist(
+        id=_get_next_playlist_id(),
+        title="Bool Privacy Private",
+        description="boolean privacy false",
+        privacy=False,
+        user_id=current_user.id
+    )
+    db_session.add(playlist)
+    db_session.flush()
+    db_session.refresh(playlist)
+
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+    resp = client.get("/api/v1/playlists/")
+    assert resp.status_code == 200
+    found = next((p for p in resp.json() if p["title"] == "Bool Privacy Private"), None)
+    assert found is not None
+    assert found["privacy"] == "private"
+
+
+def test_boolean_privacy_is_normalized_to_public(client, db_session, current_user):
+    """Legacy boolean True privacy should be normalized to 'public' in responses."""
+    playlist = Playlist(
+        id=_get_next_playlist_id(),
+        title="Bool Privacy Public",
+        description="boolean privacy true",
+        privacy=True,
+        user_id=current_user.id
+    )
+    db_session.add(playlist)
+    db_session.flush()
+    db_session.refresh(playlist)
+
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+    resp = client.get("/api/v1/playlists/")
+    assert resp.status_code == 200
+    found = next((p for p in resp.json() if p["title"] == "Bool Privacy Public"), None)
+    assert found is not None
+    assert found["privacy"] == "public"
+
+
 # ==================== GET /feed tests ====================
 
 
