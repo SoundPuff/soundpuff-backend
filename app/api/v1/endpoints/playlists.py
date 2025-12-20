@@ -25,6 +25,45 @@ def _ensure_playlist_accessible(playlist: Playlist, current_user: Optional[User]
         )
 
 
+def _normalize_privacy(playlist: Playlist):
+    """Ensure `playlist.privacy` is a string of either 'public' or 'private'.
+
+    Some legacy rows may store privacy as booleans, ints (0/1), or other
+    variants; normalize those to the expected literal strings so Pydantic
+    validation succeeds.
+    """
+    try:
+        priv = playlist.privacy
+    except Exception:
+        return playlist
+
+    # If already valid string, keep it
+    if isinstance(priv, str):
+        s = priv.strip().lower()
+        if s in ("public", "private"):
+            playlist.privacy = s
+            return playlist
+        if s in ("true", "t", "1", "yes"):
+            playlist.privacy = "public"
+            return playlist
+        if s in ("false", "f", "0", "no"):
+            playlist.privacy = "private"
+            return playlist
+        # Unexpected string - fallthrough to default
+
+    # Convert booleans and numeric values
+    if isinstance(priv, bool):
+        playlist.privacy = "public" if priv else "private"
+    elif isinstance(priv, (int, float)):
+        playlist.privacy = "public" if int(priv) != 0 else "private"
+    elif priv is None:
+        playlist.privacy = "public"
+    else:
+        # Last resort default
+        playlist.privacy = "public"
+    return playlist
+
+
 @router.get("/", response_model=List[PlaylistSchema])
 def read_playlists(
     skip: int = 0,
@@ -40,6 +79,8 @@ def read_playlists(
         query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
 
     playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
+    for p in playlists:
+        _normalize_privacy(p)
     return playlists
 
 
@@ -66,6 +107,8 @@ def read_feed(
         or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
+    for p in playlists:
+        _normalize_privacy(p)
     return playlists
 
 
@@ -82,6 +125,7 @@ def create_playlist(
     db.add(playlist)
     db.commit()
     db.refresh(playlist)
+    _normalize_privacy(playlist)
     return playlist
 
 
@@ -100,6 +144,7 @@ def read_playlist(
     _ensure_playlist_accessible(playlist, current_user)
     playlist.likes_count = len(playlist.likes)
     playlist.comments_count = len(playlist.comments)
+    _normalize_privacy(playlist)
     return playlist
 
 
@@ -135,6 +180,7 @@ def update_playlist(
 
     db.commit()
     db.refresh(playlist)
+    _normalize_privacy(playlist)
     return playlist
 
 
@@ -316,6 +362,7 @@ def add_song_to_playlist(
     playlist.songs.append(song)
     db.commit()
     db.refresh(playlist)
+    _normalize_privacy(playlist)
     return playlist
 
 
