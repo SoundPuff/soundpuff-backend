@@ -142,8 +142,6 @@ def read_playlist(
             detail="Playlist not found"
         )
     _ensure_playlist_accessible(playlist, current_user)
-    playlist.likes_count = len(playlist.likes)
-    playlist.comments_count = len(playlist.comments)
     _normalize_privacy(playlist)
     return playlist
 

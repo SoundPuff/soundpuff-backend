@@ -9,7 +9,7 @@ from app.main import app
 from app.db.base_class import Base
 from app.db.session import get_db
 from app.core.deps import get_current_user
-from app.models import User, Song, Playlist
+from app.models import User, Song, Playlist, Like, Comment
 
 
 @pytest.fixture(scope="session")
@@ -154,6 +154,27 @@ def test_search_playlists_matches_title(client, berra_user, elif_playlist):
     assert body["total"] >= 1
     titles = [p["playlist"]["title"] for p in body["playlists"]]
     assert "elif" in titles
+
+
+def test_search_playlists_includes_counts(client, berra_user, elif_playlist, db_session):
+    """Test that playlist search response includes likes_count and comments_count."""
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Add a like and comment
+    like = Like(user_id=berra_user.id, playlist_id=elif_playlist.id)
+    db_session.add(like)
+    comment = Comment(body="Test comment", user_id=berra_user.id, playlist_id=elif_playlist.id)
+    db_session.add(comment)
+    db_session.commit()
+
+    resp = client.get("/api/v1/songs/playlists/search?query=elif")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    # Find the playlist in the results
+    p = next(p["playlist"] for p in body["playlists"] if p["playlist"]["id"] == elif_playlist.id)
+    assert p["likes_count"] == 1
+    assert p["comments_count"] == 1
 
 
 # ==================== COMBINED SEARCH ====================

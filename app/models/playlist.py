@@ -22,3 +22,11 @@ class Playlist(Base):
     songs = relationship("Song", secondary=playlist_songs, back_populates="playlists", lazy="select")
     comments = relationship("Comment", back_populates="playlist", cascade="all, delete-orphan", lazy="select")
     likes = relationship("Like", back_populates="playlist", cascade="all, delete-orphan", lazy="select")
+
+    @property
+    def likes_count(self) -> int:
+        return len(self.likes)
+
+    @property
+    def comments_count(self) -> int:
+        return len(self.comments)
