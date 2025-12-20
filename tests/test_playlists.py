@@ -177,6 +177,27 @@ def test_list_playlists_public_and_own_authenticated(client, current_user, publi
     assert titles == {"Public Playlist", "Private Playlist"}
 
 
+def test_list_playlists_includes_counts(client, current_user, public_playlist, db_session):
+    """Test that playlist list response includes likes_count and comments_count."""
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+
+    # Add a like and comment
+    like = Like(user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(like)
+    comment = Comment(body="Test comment", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(comment)
+    db_session.commit()
+
+    resp = client.get("/api/v1/playlists/")
+    assert resp.status_code == 200
+    playlists = resp.json()
+    
+    # Find the public playlist in the list
+    p = next(p for p in playlists if p["id"] == public_playlist.id)
+    assert p["likes_count"] == 1
+    assert p["comments_count"] == 1
+
+
 def test_list_playlists_pagination(client, current_user, db_session):
     """Test pagination with skip and limit."""
     app.dependency_overrides[get_current_user_optional] = lambda: current_user
