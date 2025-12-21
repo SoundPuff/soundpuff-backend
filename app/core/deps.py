@@ -17,7 +17,13 @@ optional_security = HTTPBearer(auto_error=False)
 
 def get_supabase_client() -> Client:
     """Dependency to get Supabase client"""
-    return create_supabase_client()
+    try:
+        return create_supabase_client()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase configuration error",
+        )
 
 
 def get_current_user(

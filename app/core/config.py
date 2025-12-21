@@ -44,6 +44,23 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
+    # Input limits / sanitization
+    USERNAME_MAX_LENGTH: int = 50
+    BIO_MAX_LENGTH: int = 500
+    PLAYLIST_TITLE_MAX_LENGTH: int = 100
+    PLAYLIST_DESCRIPTION_MAX_LENGTH: int = 2000
+    COMMENT_MAX_LENGTH: int = 2000
+
+    # Request protections
+    BODY_MAX_BYTES: int = 1_000_000  # 1MB
+    RATE_LIMITS: dict = {
+        "/api/v1/auth": {"limit": 20, "window_seconds": 60},
+        "/api/v1/songs/search": {"limit": 60, "window_seconds": 60},
+        "/api/v1/songs/users/search": {"limit": 60, "window_seconds": 60},
+        "/api/v1/songs/playlists/search": {"limit": 60, "window_seconds": 60},
+        "/api/v1/songs/all": {"limit": 60, "window_seconds": 60},
+    }
+
     # CORS Settings
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
 

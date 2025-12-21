@@ -5,6 +5,7 @@ from fastapi.openapi.utils import get_openapi
 
 from app.core.config import settings
 from app.api.v1.api import api_router
+from app.core.middleware import BodySizeLimitMiddleware, SimpleRateLimiterMiddleware
 
 # Import all models at startup to ensure they're registered with SQLAlchemy
 from app.models import User, Playlist, Song, Comment, Like, Follow  # noqa: F401
@@ -61,10 +62,22 @@ All protected endpoints require a Bearer token. Get your token by:
     }
 )
 
+allowed_origins = [o for o in settings.BACKEND_CORS_ORIGINS if o != "*"]
+
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_body_size=settings.BODY_MAX_BYTES,
+)
+
+app.add_middleware(
+    SimpleRateLimiterMiddleware,
+    rules=settings.RATE_LIMITS,
+)
+
 # Set up CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
