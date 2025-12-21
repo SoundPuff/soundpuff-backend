@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 
 from app.core.deps import get_current_user, get_current_user_optional
+from app.core.sanitize import sanitize_text
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import User, Playlist, Like, Comment, Follow
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
@@ -20,8 +22,8 @@ router = APIRouter()
 def _ensure_playlist_accessible(playlist: Playlist, current_user: Optional[User]):
     if playlist.privacy == "private" and (current_user is None or playlist.user_id != current_user.id):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This playlist is private"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playlist not found"
         )
 
 
@@ -118,8 +120,15 @@ def create_playlist(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    title = sanitize_text(playlist_in.title, settings.PLAYLIST_TITLE_MAX_LENGTH)
+    description = sanitize_text(playlist_in.description, settings.PLAYLIST_DESCRIPTION_MAX_LENGTH)
+    if not title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Playlist title is required")
+
     playlist = Playlist(
-        **playlist_in.dict(),
+        title=title,
+        description=description,
+        privacy=playlist_in.privacy,
         user_id=current_user.id
     )
     db.add(playlist)
@@ -169,9 +178,12 @@ def update_playlist(
 
     # Update fields
     if playlist_in.title is not None:
-        playlist.title = playlist_in.title
+        new_title = sanitize_text(playlist_in.title, settings.PLAYLIST_TITLE_MAX_LENGTH)
+        if not new_title:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Playlist title is required")
+        playlist.title = new_title
     if playlist_in.description is not None:
-        playlist.description = playlist_in.description
+        playlist.description = sanitize_text(playlist_in.description, settings.PLAYLIST_DESCRIPTION_MAX_LENGTH)
     if playlist_in.privacy is not None:
         playlist.privacy = playlist_in.privacy
     # Removed cover image handling (no longer supported)
@@ -308,8 +320,12 @@ def create_comment(
     
     _ensure_playlist_accessible(playlist, current_user)
 
+    comment_body = sanitize_text(comment_in.body, settings.COMMENT_MAX_LENGTH)
+    if not comment_body:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment body is required")
+
     comment = Comment(
-        body=comment_in.body,
+        body=comment_body,
         user_id=current_user.id,
         playlist_id=playlist_id
     )
@@ -421,7 +437,11 @@ def update_comment(
             detail="Not authorized to update this comment"
         )
 
-    comment.body = comment_in.body
+    sanitized_body = sanitize_text(comment_in.body, settings.COMMENT_MAX_LENGTH)
+    if not sanitized_body:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment body is required")
+
+    comment.body = sanitized_body
     db.commit()
     db.refresh(comment)
     return comment

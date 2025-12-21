@@ -6,6 +6,8 @@ from pydantic import BaseModel, EmailStr
 from uuid import UUID
 
 from app.core.deps import get_supabase_client
+from app.core.sanitize import sanitize_text
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import User  # Import from models package to ensure all models are loaded
 from app.schemas.token import Token, TokenRefresh
@@ -120,8 +122,15 @@ def signup(
     2. Create user profile in our database
     3. Return access token
     """
+    sanitized_username = sanitize_text(signup_data.username, settings.USERNAME_MAX_LENGTH)
+    if not sanitized_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid username"
+        )
+
     # Check if username already exists
-    existing_user = db.query(User).filter(User.username == signup_data.username).first()
+    existing_user = db.query(User).filter(User.username == sanitized_username).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -145,7 +154,7 @@ def signup(
         user_id = UUID(auth_response.user.id)
         db_user = User(
             id=user_id,
-            username=signup_data.username
+            username=sanitized_username
         )
         db.add(db_user)
         db.commit()

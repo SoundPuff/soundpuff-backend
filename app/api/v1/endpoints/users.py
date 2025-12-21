@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.deps import get_current_user
+from app.core.sanitize import sanitize_text
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import User, Follow
 from app.schemas.user import User as UserSchema, UserUpdate
@@ -24,9 +26,9 @@ def update_current_user(
     current_user: User = Depends(get_current_user)
 ):
     if user_in.bio is not None:
-        current_user.bio = user_in.bio
+        current_user.bio = sanitize_text(user_in.bio, settings.BIO_MAX_LENGTH)
     if user_in.avatar_url is not None:
-        current_user.avatar_url = user_in.avatar_url
+        current_user.avatar_url = sanitize_text(user_in.avatar_url, 255)
 
     db.commit()
     db.refresh(current_user)

@@ -18,6 +18,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "supabase>=2.6.0",
     "kagglehub>=0.2.9",
+    "pytest-cov>=5.0.0",
 ]
 
 [build-system]

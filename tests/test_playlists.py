@@ -368,8 +368,8 @@ def test_read_playlist_public_unauthenticated(client, public_playlist):
 def test_read_playlist_private_unauthenticated_forbidden(client, private_playlist):
     """Unauthenticated users cannot read private playlists."""
     resp = client.get(f"/api/v1/playlists/{private_playlist.id}")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "This playlist is private"
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Playlist not found"
 
 
 def test_read_playlist_private_owner_can_read(client, current_user, private_playlist):
@@ -388,7 +388,7 @@ def test_read_playlist_private_non_owner_forbidden(client, current_user, other_u
     other_playlist = _create_playlist(db_session, other_user, "Someone Else's Private", "", "private")
 
     resp = client.get(f"/api/v1/playlists/{other_playlist.id}")
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_read_playlist_not_found(client):
@@ -562,7 +562,7 @@ def test_like_playlist_private_not_accessible(client, current_user, other_user, 
     private = _create_playlist(db_session, other_user, "Private", "", "private")
 
     resp = client.post(f"/api/v1/playlists/{private.id}/like")
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_like_playlist_already_liked(client, current_user, public_playlist, db_session):
@@ -795,7 +795,7 @@ def test_get_playlist_comments_private_unauthenticated(client, current_user, db_
     private = _create_playlist(db_session, current_user, "Private", "", "private")
 
     resp = client.get(f"/api/v1/playlists/{private.id}/comments")
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_get_playlist_comments_not_found(client):
@@ -847,7 +847,7 @@ def test_create_comment_private_playlist_non_owner(client, current_user, other_u
         f"/api/v1/playlists/{private.id}/comments",
         json={"body": "Hack attempt", "playlist_id": private.id}
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_create_comment_playlist_not_found(client, current_user):
