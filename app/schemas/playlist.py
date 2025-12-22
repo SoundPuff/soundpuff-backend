@@ -13,7 +13,7 @@ class PlaylistBase(BaseModel):
 
 
 class PlaylistCreate(PlaylistBase):
-    pass
+    song_ids: Optional[List[int]] = None  # Songs to add during playlist creation
 
 
 class PlaylistUpdate(BaseModel):

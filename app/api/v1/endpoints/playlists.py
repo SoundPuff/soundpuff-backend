@@ -125,6 +125,23 @@ def create_playlist(
     if not title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Playlist title is required")
 
+    # Validate song_ids if provided
+    songs_to_add = []
+    if playlist_in.song_ids:
+        # Remove duplicates while preserving order
+        unique_song_ids = list(dict.fromkeys(playlist_in.song_ids))
+        
+        # Fetch and validate all songs exist
+        songs_to_add = db.query(Song).filter(Song.id.in_(unique_song_ids)).all()
+        found_ids = {song.id for song in songs_to_add}
+        missing_ids = [sid for sid in unique_song_ids if sid not in found_ids]
+        
+        if missing_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Songs not found: {missing_ids}"
+            )
+
     playlist = Playlist(
         title=title,
         description=description,
@@ -132,6 +149,11 @@ def create_playlist(
         user_id=current_user.id
     )
     db.add(playlist)
+    
+    # Add songs to playlist if provided
+    if songs_to_add:
+        playlist.songs.extend(songs_to_add)
+    
     db.commit()
     db.refresh(playlist)
     _normalize_privacy(playlist)
