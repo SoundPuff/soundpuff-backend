@@ -53,11 +53,17 @@ def db_session(_engine):
         connection.close()
 
 
-def _supabase_auth_response(*, user_id: str | None, access_token: str | None = None, refresh_token: str = "refresh"):
+def _supabase_auth_response(
+    *,
+    user_id: str | None,
+    access_token: str | None = None,
+    refresh_token: str = "refresh",
+    expires_in: int = 3600,
+):
     user = None if user_id is None else SimpleNamespace(id=user_id)
     session = None
     if access_token is not None:
-        session = SimpleNamespace(access_token=access_token, refresh_token=refresh_token)
+        session = SimpleNamespace(access_token=access_token, refresh_token=refresh_token, expires_in=expires_in)
     return SimpleNamespace(user=user, session=session)
 
 
@@ -151,7 +157,9 @@ def test_login_success_returns_token(client):
     payload = {"email": "user@example.com", "password": "SecurePassword123!"}
     resp = client.post("/api/v1/auth/login", json=payload)
     assert resp.status_code == 200
-    assert resp.json() == {"access_token": access_token, "token_type": "bearer"}
+    body = resp.json()
+    assert body["access_token"] == access_token
+    assert body["token_type"] == "bearer"
 
 
 def test_login_invalid_credentials_returns_401(client):
