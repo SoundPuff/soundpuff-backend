@@ -64,6 +64,12 @@ All protected endpoints require a Bearer token. Get your token by:
 
 allowed_origins = [o for o in settings.BACKEND_CORS_ORIGINS if o != "*"]
 
+# If BACKEND_CORS_ORIGINS is not configured, default to allowing same-machine
+# development origins (frontend dev servers / local proxies). This avoids the
+# common "CORS suddenly broke" scenario when running locally without env vars.
+local_dev_origin_regex = r"^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|host\\.docker\\.internal)(:\\d+)?$"
+allow_origin_regex = local_dev_origin_regex if not allowed_origins else None
+
 app.add_middleware(
     BodySizeLimitMiddleware,
     max_body_size=settings.BODY_MAX_BYTES,
@@ -78,6 +84,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
