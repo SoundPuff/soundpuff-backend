@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy import Column, String, DateTime, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -15,6 +15,10 @@ class User(Base):
     bio = Column(Text, nullable=True)
     avatar_url = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Soft deletion
+    is_deleted = Column(Boolean, nullable=False, server_default="false", default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     playlists = relationship("Playlist", back_populates="owner", cascade="all, delete-orphan")

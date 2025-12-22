@@ -62,6 +62,12 @@ def get_current_user(
                 detail="User profile not found. Please create a profile first."
             )
 
+        if getattr(user, "is_deleted", False):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
         return user
 
     except ValueError as e:
@@ -109,6 +115,9 @@ def get_current_user_optional(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User profile not found. Please create a profile first."
             )
+
+        if getattr(user, "is_deleted", False):
+            return None
 
         return user
 

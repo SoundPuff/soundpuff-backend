@@ -198,6 +198,45 @@ def test_list_playlists_includes_counts(client, current_user, public_playlist, d
     assert p["comments_count"] == 1
 
 
+def test_playlist_owner_deleted_is_rendered_anonymized(client, other_user, db_session):
+    """Playlist responses should display deleted owners as 'Deleted user'."""
+    # Create playlist owned by other_user
+    playlist = _create_playlist(db_session, other_user, "Owned By Deleted", "", "public")
+    other_user.is_deleted = True
+    other_user.bio = "should not leak"
+    other_user.avatar_url = "https://example.com/avatar.png"
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/playlists/{playlist.id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["owner"]["username"] == "Deleted user"
+    assert body["owner"]["bio"] is None
+    assert body["owner"]["avatar_url"] is None
+
+
+def test_comment_user_deleted_is_rendered_anonymized(client, public_playlist, other_user, db_session):
+    """Comment responses should display deleted authors as 'Deleted user'."""
+    # Create comment by other_user
+    c = Comment(body="hello", user_id=other_user.id, playlist_id=public_playlist.id)
+    db_session.add(c)
+    db_session.commit()
+
+    other_user.is_deleted = True
+    other_user.bio = "should not leak"
+    other_user.avatar_url = "https://example.com/avatar.png"
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/playlists/{public_playlist.id}/comments")
+    assert resp.status_code == 200
+    comments = resp.json()
+    assert len(comments) >= 1
+    found = next(x for x in comments if x["id"] == c.id)
+    assert found["user"]["username"] == "Deleted user"
+    assert found["user"]["bio"] is None
+    assert found["user"]["avatar_url"] is None
+
+
 def test_list_playlists_pagination(client, current_user, db_session):
     """Test pagination with skip and limit."""
     app.dependency_overrides[get_current_user_optional] = lambda: current_user
