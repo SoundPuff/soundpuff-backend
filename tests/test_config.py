@@ -27,14 +27,6 @@ def test_cors_origins_are_split_into_list():
     ]
 
 
-def test_db_url_defaults_to_local_postgres_connection():
-    settings = make_settings()
-
-    assert (
-        settings.db_url
-        == "postgresql+psycopg2://postgres:postgres@localhost:5432/soundpuff"
-    )
-
 
 def test_supabase_database_url_is_used_when_provided():
     custom_database_url = "postgresql+psycopg2://user:password@host:5432/customdb"

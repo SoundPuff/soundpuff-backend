@@ -9,7 +9,7 @@ from app.main import app
 from app.db.base_class import Base
 from app.db.session import get_db
 from app.core.deps import get_current_user
-from app.models import User, Follow
+from app.models import User, Follow, Like, Playlist
 
 
 @pytest.fixture(scope="session")
@@ -267,6 +267,45 @@ def test_unfollow_user_success(client, current_user, other_user, db_session):
     # Unfollow
     resp = client.delete(f"/api/v1/users/{other_user.username}/follow")
     assert resp.status_code == 204
+
+
+# ==================== DELETE /me tests ====================
+
+
+def test_delete_current_user_anonymizes_and_removes_edges(client, current_user, other_user, db_session):
+    """Deleting a user should anonymize their profile and remove follow/like edges."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    # Create a playlist so we can assert stable ID references don't explode.
+    playlist = Playlist(title="t", description=None, privacy="public", user_id=current_user.id)
+    db_session.add(playlist)
+
+    # Create like + follow edges
+    db_session.add(Like(user_id=current_user.id, playlist_id=1))
+    db_session.add(Follow(follower_id=current_user.id, following_id=other_user.id))
+    db_session.add(Follow(follower_id=other_user.id, following_id=current_user.id))
+    db_session.commit()
+
+    resp = client.delete("/api/v1/users/me")
+    assert resp.status_code == 204
+
+    # User row still exists (stable internal ID)
+    refreshed = db_session.query(User).filter(User.id == current_user.id).first()
+    assert refreshed is not None
+    assert refreshed.is_deleted is True
+    assert refreshed.bio is None
+    assert refreshed.avatar_url is None
+    assert refreshed.username.startswith("deleted-user-")
+
+    # Likes and follows are removed
+    assert db_session.query(Like).filter(Like.user_id == current_user.id).count() == 0
+    assert db_session.query(Follow).filter(Follow.follower_id == current_user.id).count() == 0
+    assert db_session.query(Follow).filter(Follow.following_id == current_user.id).count() == 0
+
+    # Profile becomes inaccessible by username
+    resp2 = client.get(f"/api/v1/users/{refreshed.username}")
+    assert resp2.status_code == 404
+    assert resp2.json()["detail"] == "User not found"
 
     # Verify follow was deleted
     follow = db_session.query(Follow).filter(
