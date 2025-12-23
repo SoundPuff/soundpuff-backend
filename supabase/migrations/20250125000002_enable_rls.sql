@@ -5,6 +5,7 @@ ALTER TABLE public.songs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.playlist_songs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comment_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
@@ -134,6 +135,25 @@ CREATE POLICY "Users can like playlists"
 CREATE POLICY "Users can unlike playlists"
     ON public.likes FOR DELETE
     USING (auth.uid() = user_id);
+
+-- ============================================
+-- COMMENT_LIKES POLICIES
+-- ============================================
+
+-- Anyone can view comment_likes
+CREATE POLICY "Comment likes are viewable by everyone"
+    ON public.comment_likes FOR SELECT
+    USING (true);
+
+-- Users can like comments
+CREATE POLICY "Users can like comments"
+    ON public.comment_likes FOR INSERT
+    WITH CHECK ((SELECT auth.uid()) = user_id);
+
+-- Users can unlike comments
+CREATE POLICY "Users can unlike comments"
+    ON public.comment_likes FOR DELETE
+    USING ((SELECT auth.uid()) = user_id);
 
 -- ============================================
 -- COMMENTS POLICIES
