@@ -11,12 +11,13 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import User, Follow, Like, Playlist
 from app.schemas.user import User as UserSchema, UserUpdate, UserWithRelations
+from typing import Optional
 # Note: Follow schema is not needed for 204 responses
 
 router = APIRouter()
 
 
-def _get_active_user_by_username(db: Session, username: str) -> User | None:
+def _get_active_user_by_username(db: Session, username: str) -> Optional[User]:
     return db.query(User).filter(User.username == username, User.is_deleted.is_(False)).first()
 
 
