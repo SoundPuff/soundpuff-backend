@@ -25,6 +25,7 @@ class SongInDB(SongBase):
 class Song(SongInDB):
     pass
 
+
 class SongListResponse(BaseModel):
     total: int
     songs: List[Song]
