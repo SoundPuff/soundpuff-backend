@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 from typing import List, Optional
@@ -339,6 +339,7 @@ def unlike_playlist(
 @router.get("/{playlist_id}/comments", response_model=List[CommentSchema])
 def read_playlist_comments(
     playlist_id: int,
+    parent_comment_id: Optional[int] = Query(default=None, description="Filter replies by parent comment ID"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
@@ -350,9 +351,15 @@ def read_playlist_comments(
         )
 
     _ensure_playlist_accessible(playlist, current_user)
-    comments = db.query(Comment).filter(
+    comments_query = db.query(Comment).filter(
         Comment.playlist_id == playlist_id
-    ).order_by(desc(Comment.created_at)).all()
+    
+    )
+
+    if parent_comment_id is not None:
+        comments_query = comments_query.filter(Comment.parent_comment_id == parent_comment_id)
+
+    comments = comments_query.order_by(desc(Comment.created_at)).all()
     return comments
 
 
@@ -376,11 +383,20 @@ def create_comment(
     comment_body = sanitize_text(comment_in.body, settings.COMMENT_MAX_LENGTH)
     if not comment_body:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment body is required")
+    parent_comment = None
+    if comment_in.parent_comment_id is not None:
+        parent_comment = db.query(Comment).filter(Comment.id == comment_in.parent_comment_id).first()
+        if not parent_comment or parent_comment.playlist_id != playlist_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent comment not found",
+            )
 
     comment = Comment(
         body=comment_body,
         user_id=current_user.id,
-        playlist_id=playlist_id
+        playlist_id=playlist_id,
+        parent_comment_id=comment_in.parent_comment_id,
     )
     db.add(comment)
     db.commit()
@@ -518,6 +534,10 @@ def delete_comment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this comment"
         )
+    # Preserve replies by detaching them from the deleted parent comment.
+    db.query(Comment).filter(Comment.parent_comment_id == comment.id).update(
+        {Comment.parent_comment_id: None}
+    )
 
     db.delete(comment)
     db.commit()
