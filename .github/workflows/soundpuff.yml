@@ -55,6 +55,7 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             cd ..
+            systemctl restart soundpuff
           fi
 
           echo ">>> Sync backend deps"
