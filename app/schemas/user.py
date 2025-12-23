@@ -1,7 +1,8 @@
-from pydantic import BaseModel, model_validator
-from typing import Optional
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
+from typing import Literal
 
 
 class UserBase(BaseModel):
@@ -53,3 +54,27 @@ class UserInDB(UserBase):
 
 class User(UserInDB):
     pass
+
+
+class PlaylistBrief(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    privacy: Literal["public", "private"]
+    user_id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    owner: User
+    likes_count: int = 0
+    comments_count: int = 0
+    is_liked: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class UserWithRelations(User):
+    followers: List[User] = Field(default_factory=list)
+    following: List[User] = Field(default_factory=list)
+    liked_playlists: List[PlaylistBrief] = Field(default_factory=list)
+    playlists: List[PlaylistBrief] = Field(default_factory=list)
