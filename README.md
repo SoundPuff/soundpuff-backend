@@ -1,6 +1,7 @@
 # SoundPuff Backend
 
-A social music platform API built with FastAPI and PostgreSQL.
+A [social music platform API](https://soundpuff-api.ozten.app/)
+ built with FastAPI and PostgreSQL.
 
 ## Features
 
