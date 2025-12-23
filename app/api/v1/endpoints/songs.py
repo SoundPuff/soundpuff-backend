@@ -42,6 +42,7 @@ def _playlist_to_search_response(db: Session, playlist: Playlist, current_user: 
         "title": playlist.title,
         "description": playlist.description,
         "privacy": playlist.privacy,
+        "cover_image_url": playlist.cover_image_url,
         "user_id": playlist.user_id,
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,

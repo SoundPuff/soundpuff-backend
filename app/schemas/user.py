@@ -61,6 +61,7 @@ class PlaylistBrief(BaseModel):
     title: str
     description: Optional[str] = None
     privacy: Literal["public", "private"]
+    cover_image_url: Optional[str] = None
     user_id: UUID
     created_at: datetime
     updated_at: Optional[datetime] = None

@@ -27,6 +27,7 @@ def _playlist_brief_response(playlist: Playlist, is_liked: bool = False) -> dict
         "title": playlist.title,
         "description": playlist.description,
         "privacy": playlist.privacy,
+        "cover_image_url": playlist.cover_image_url,
         "user_id": playlist.user_id,
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,
