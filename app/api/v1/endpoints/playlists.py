@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func, or_
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
+from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import User, Playlist, Like, Comment, Follow
+from app.models import Comment, Follow, Like, Playlist, User
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
 from app.schemas.playlist import PlaylistAddSong
 from app.models import Song
@@ -22,10 +23,51 @@ def _check_user_liked_playlist(db: Session, playlist_id: int, user_id) -> bool:
     """Check if a user has liked a specific playlist."""
     if user_id is None:
         return False
-    return db.query(Like).filter(
+    return (
+        db.query(Like.playlist_id)
+        .filter(Like.user_id == user_id, Like.playlist_id == playlist_id)
+        .first()
+        is not None
+    )
+
+
+def _bulk_playlist_counts(db: Session, playlist_ids: list[int]) -> dict[int, dict[str, int]]:
+    """Return likes/comments counts keyed by playlist id."""
+    if not playlist_ids:
+        return {}
+
+    likes_counts = dict(
+        db.query(Like.playlist_id, func.count(Like.user_id))
+        .filter(Like.playlist_id.in_(playlist_ids))
+        .group_by(Like.playlist_id)
+        .all()
+    )
+    comments_counts = dict(
+        db.query(Comment.playlist_id, func.count(Comment.id))
+        .filter(Comment.playlist_id.in_(playlist_ids))
+        .group_by(Comment.playlist_id)
+        .all()
+    )
+
+    return {
+        pid: {
+            "likes": likes_counts.get(pid, 0),
+            "comments": comments_counts.get(pid, 0),
+        }
+        for pid in playlist_ids
+    }
+
+
+def _bulk_liked_playlist_ids(db: Session, playlist_ids: list[int], user_id: Optional[UUID]) -> set[int]:
+    """Prefetch playlists liked by the user to avoid per-row lookups."""
+    if not playlist_ids or user_id is None:
+        return set()
+
+    liked = db.query(Like.playlist_id).filter(
         Like.user_id == user_id,
-        Like.playlist_id == playlist_id
-    ).first() is not None
+        Like.playlist_id.in_(playlist_ids),
+    )
+    return {row[0] for row in liked.all()}
 
 
 def _set_playlist_is_liked(db: Session, playlist: Playlist, current_user: Optional[User]):
@@ -36,11 +78,43 @@ def _set_playlist_is_liked(db: Session, playlist: Playlist, current_user: Option
         playlist._is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id)
 
 
-def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optional[User]) -> dict:
+def _playlist_to_response(
+    db: Session,
+    playlist: Playlist,
+    current_user: Optional[User],
+    counts: Optional[dict[int, dict[str, int]]] = None,
+    liked_playlist_ids: Optional[set[int]] = None,
+) -> dict:
     """Convert a playlist model to a response dict with is_liked."""
     _normalize_privacy(playlist)
-    is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id if current_user else None)
-    
+    playlist_counts = (counts or {}).get(playlist.id)
+
+    likes_count: Optional[int] = None
+    comments_count: Optional[int] = None
+    if playlist_counts:
+        likes_count = playlist_counts.get("likes", 0)
+        comments_count = playlist_counts.get("comments", 0)
+
+    # Fall back to lightweight COUNT(*) queries when not prefetched
+    if likes_count is None:
+        likes_count = (
+            db.query(func.count(Like.user_id))
+            .filter(Like.playlist_id == playlist.id)
+            .scalar()
+        ) or 0
+    if comments_count is None:
+        comments_count = (
+            db.query(func.count(Comment.id))
+            .filter(Comment.playlist_id == playlist.id)
+            .scalar()
+        ) or 0
+
+    is_liked = (
+        playlist.id in liked_playlist_ids
+        if liked_playlist_ids is not None
+        else _check_user_liked_playlist(db, playlist.id, current_user.id if current_user else None)
+    )
+
     return {
         "id": playlist.id,
         "title": playlist.title,
@@ -51,8 +125,8 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "updated_at": playlist.updated_at,
         "owner": playlist.owner,
         "songs": playlist.songs,
-        "likes_count": playlist.likes_count,
-        "comments_count": playlist.comments_count,
+        "likes_count": likes_count,
+        "comments_count": comments_count,
         "is_liked": is_liked,
     }
 
@@ -111,7 +185,10 @@ def read_playlists(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    query = db.query(Playlist)
+    query = db.query(Playlist).options(
+        selectinload(Playlist.owner),
+        selectinload(Playlist.songs),
+    )
 
     if current_user is None:
         query = query.filter(Playlist.privacy == "public")
@@ -119,7 +196,12 @@ def read_playlists(
         query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
 
     playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
-    return [_playlist_to_response(db, p, current_user) for p in playlists]
+
+    playlist_ids = [p.id for p in playlists]
+    counts = _bulk_playlist_counts(db, playlist_ids)
+    liked_ids = _bulk_liked_playlist_ids(db, playlist_ids, current_user.id if current_user else None)
+
+    return [_playlist_to_response(db, p, current_user, counts, liked_ids) for p in playlists]
 
 
 @router.get("/feed", response_model=List[PlaylistSchema])
@@ -139,13 +221,20 @@ def read_feed(
     if not following_ids:
         return []
 
-    playlists = db.query(Playlist).filter(
+    playlists = db.query(Playlist).options(
+        selectinload(Playlist.owner),
+        selectinload(Playlist.songs),
+    ).filter(
         Playlist.user_id.in_(following_ids)
     ).filter(
         or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
-    return [_playlist_to_response(db, p, current_user) for p in playlists]
+    playlist_ids = [p.id for p in playlists]
+    counts = _bulk_playlist_counts(db, playlist_ids)
+    liked_ids = _bulk_liked_playlist_ids(db, playlist_ids, current_user.id)
+
+    return [_playlist_to_response(db, p, current_user, counts, liked_ids) for p in playlists]
 
 
 @router.post("/", response_model=PlaylistSchema, status_code=status.HTTP_201_CREATED)

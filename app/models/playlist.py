@@ -1,7 +1,6 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, BigInteger
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.orm import object_session, relationship
 from app.db.base_class import Base
 from app.models.association_tables import playlist_songs
 
@@ -25,8 +24,36 @@ class Playlist(Base):
 
     @property
     def likes_count(self) -> int:
-        return len(self.likes)
+        if "likes" in self.__dict__:
+            return len(self.likes)
+
+        session = object_session(self)
+        if session is None:
+            return 0
+
+        from app.models.like import Like  # Imported lazily to avoid circular imports
+
+        return (
+            session.query(func.count(Like.user_id))
+            .filter(Like.playlist_id == self.id)
+            .scalar()
+            or 0
+        )
 
     @property
     def comments_count(self) -> int:
-        return len(self.comments)
+        if "comments" in self.__dict__:
+            return len(self.comments)
+
+        session = object_session(self)
+        if session is None:
+            return 0
+
+        from app.models.comment import Comment  # Imported lazily to avoid circular imports
+
+        return (
+            session.query(func.count(Comment.id))
+            .filter(Comment.playlist_id == self.id)
+            .scalar()
+            or 0
+        )

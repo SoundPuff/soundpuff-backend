@@ -15,18 +15,25 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         self.max_body_size = max_body_size
 
     async def dispatch(self, request: Request, call_next: Callable):
-        if request.headers.get("content-length"):
+        raw_content_length = request.headers.get("content-length")
+
+        # When the client sends Content-Length we can short-circuit without buffering the body.
+        if raw_content_length:
             try:
-                content_length = int(request.headers["content-length"])
+                content_length = int(raw_content_length)
                 if content_length > self.max_body_size:
                     return JSONResponse(
                         status_code=413,
                         content={"detail": "Request body too large"},
                     )
+                # Safe to forward without touching the body (avoids double buffering).
+                return await call_next(request)
             except ValueError:
+                # Fall through to streaming check below when Content-Length is invalid.
                 pass
 
-        # Read and re-inject body so downstream handlers can still access it
+        # Unknown Content-Length: read once with an upper bound and re-inject so downstream
+        # handlers can still consume the body.
         body = await request.body()
         if len(body) > self.max_body_size:
             return JSONResponse(status_code=413, content={"detail": "Request body too large"})
