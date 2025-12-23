@@ -9,8 +9,8 @@ from app.core.deps import get_current_user
 from app.core.sanitize import sanitize_text
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import User, Follow, Like
-from app.schemas.user import User as UserSchema, UserUpdate
+from app.models import User, Follow, Like, Playlist
+from app.schemas.user import User as UserSchema, UserUpdate, UserWithRelations
 # Note: Follow schema is not needed for 204 responses
 
 router = APIRouter()
@@ -20,9 +20,74 @@ def _get_active_user_by_username(db: Session, username: str) -> User | None:
     return db.query(User).filter(User.username == username, User.is_deleted.is_(False)).first()
 
 
-@router.get("/me", response_model=UserSchema)
-def read_current_user(current_user: User = Depends(get_current_user)):
-    return current_user
+def _playlist_brief_response(playlist: Playlist, is_liked: bool = False) -> dict:
+    return {
+        "id": playlist.id,
+        "title": playlist.title,
+        "description": playlist.description,
+        "privacy": playlist.privacy,
+        "user_id": playlist.user_id,
+        "created_at": playlist.created_at,
+        "updated_at": playlist.updated_at,
+        "owner": playlist.owner,
+        "likes_count": playlist.likes_count,
+        "comments_count": playlist.comments_count,
+        "is_liked": is_liked,
+    }
+
+
+@router.get("/me", response_model=UserWithRelations)
+def read_current_user(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    followers = (
+        db.query(User)
+        .join(Follow, Follow.follower_id == User.id)
+        .filter(Follow.following_id == current_user.id, User.is_deleted.is_(False))
+        .all()
+    )
+
+    following = (
+        db.query(User)
+        .join(Follow, Follow.following_id == User.id)
+        .filter(Follow.follower_id == current_user.id, User.is_deleted.is_(False))
+        .all()
+    )
+
+    liked_playlist_ids = {
+        row[0]
+        for row in db.query(Like.playlist_id).filter(Like.user_id == current_user.id).all()
+    }
+
+    created_playlists = (
+        db.query(Playlist)
+        .filter(Playlist.user_id == current_user.id)
+        .all()
+    )
+
+    liked_playlists = (
+        db.query(Playlist)
+        .join(Like, Like.playlist_id == Playlist.id)
+        .filter(Like.user_id == current_user.id)
+        .filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
+        .all()
+    )
+
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "bio": current_user.bio,
+        "avatar_url": current_user.avatar_url,
+        "created_at": current_user.created_at,
+        "followers": followers,
+        "following": following,
+        "liked_playlists": [
+            _playlist_brief_response(playlist, is_liked=True)
+            for playlist in liked_playlists
+        ],
+        "playlists": [
+            _playlist_brief_response(playlist, is_liked=playlist.id in liked_playlist_ids)
+            for playlist in created_playlists
+        ],
+    }
 
 
 @router.put("/me", response_model=UserSchema)
