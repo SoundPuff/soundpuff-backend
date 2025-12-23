@@ -5,7 +5,7 @@ from typing import Optional
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models import Song, User, Playlist
+from app.models import Song, User, Playlist, Like
 from app.schemas.search import (
     SongSearchResult, 
     SongSearchResults,
@@ -19,6 +19,38 @@ from app.schemas.search import (
 
 
 router = APIRouter()
+
+
+# ==================== HELPER FUNCTIONS ====================
+
+def _check_user_liked_playlist(db: Session, playlist_id: int, user_id) -> bool:
+    """Check if a user has liked a specific playlist."""
+    if user_id is None:
+        return False
+    return db.query(Like).filter(
+        Like.user_id == user_id,
+        Like.playlist_id == playlist_id
+    ).first() is not None
+
+
+def _playlist_to_search_response(db: Session, playlist: Playlist, current_user: User) -> dict:
+    """Convert a playlist model to a search response dict with is_liked."""
+    is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id)
+    
+    return {
+        "id": playlist.id,
+        "title": playlist.title,
+        "description": playlist.description,
+        "privacy": playlist.privacy,
+        "user_id": playlist.user_id,
+        "created_at": playlist.created_at,
+        "updated_at": playlist.updated_at,
+        "owner": playlist.owner,
+        "songs": playlist.songs,
+        "likes_count": playlist.likes_count,
+        "comments_count": playlist.comments_count,
+        "is_liked": is_liked,
+    }
 
 
 # ==================== SONG SEARCH ====================

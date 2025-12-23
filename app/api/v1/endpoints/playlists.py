@@ -2,9 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 from typing import List, Optional
-from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
-from typing import List
 
 from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
@@ -18,6 +16,46 @@ from app.schemas.like import Like as LikeSchema
 from app.schemas.comment import Comment as CommentSchema, CommentCreate, CommentUpdate
 
 router = APIRouter()
+
+
+def _check_user_liked_playlist(db: Session, playlist_id: int, user_id) -> bool:
+    """Check if a user has liked a specific playlist."""
+    if user_id is None:
+        return False
+    return db.query(Like).filter(
+        Like.user_id == user_id,
+        Like.playlist_id == playlist_id
+    ).first() is not None
+
+
+def _set_playlist_is_liked(db: Session, playlist: Playlist, current_user: Optional[User]):
+    """Set the is_liked attribute on a playlist based on current user."""
+    if current_user is None:
+        playlist._is_liked = False
+    else:
+        playlist._is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id)
+
+
+def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optional[User]) -> dict:
+    """Convert a playlist model to a response dict with is_liked."""
+    _normalize_privacy(playlist)
+    is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id if current_user else None)
+    
+    return {
+        "id": playlist.id,
+        "title": playlist.title,
+        "description": playlist.description,
+        "privacy": playlist.privacy,
+        "user_id": playlist.user_id,
+        "created_at": playlist.created_at,
+        "updated_at": playlist.updated_at,
+        "owner": playlist.owner,
+        "songs": playlist.songs,
+        "likes_count": playlist.likes_count,
+        "comments_count": playlist.comments_count,
+        "is_liked": is_liked,
+    }
+
 
 def _ensure_playlist_accessible(playlist: Playlist, current_user: Optional[User]):
     if playlist.privacy == "private" and (current_user is None or playlist.user_id != current_user.id):
@@ -81,9 +119,7 @@ def read_playlists(
         query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
 
     playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
-    for p in playlists:
-        _normalize_privacy(p)
-    return playlists
+    return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
 @router.get("/feed", response_model=List[PlaylistSchema])
@@ -109,9 +145,7 @@ def read_feed(
         or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
     ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
 
-    for p in playlists:
-        _normalize_privacy(p)
-    return playlists
+    return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
 @router.post("/", response_model=PlaylistSchema, status_code=status.HTTP_201_CREATED)
@@ -156,8 +190,7 @@ def create_playlist(
     
     db.commit()
     db.refresh(playlist)
-    _normalize_privacy(playlist)
-    return playlist
+    return _playlist_to_response(db, playlist, current_user)
 
 
 @router.get("/{playlist_id}", response_model=PlaylistSchema)
@@ -173,8 +206,7 @@ def read_playlist(
             detail="Playlist not found"
         )
     _ensure_playlist_accessible(playlist, current_user)
-    _normalize_privacy(playlist)
-    return playlist
+    return _playlist_to_response(db, playlist, current_user)
 
 
 @router.put("/{playlist_id}", response_model=PlaylistSchema)
@@ -212,8 +244,7 @@ def update_playlist(
 
     db.commit()
     db.refresh(playlist)
-    _normalize_privacy(playlist)
-    return playlist
+    return _playlist_to_response(db, playlist, current_user)
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -398,8 +429,7 @@ def add_song_to_playlist(
     playlist.songs.append(song)
     db.commit()
     db.refresh(playlist)
-    _normalize_privacy(playlist)
-    return playlist
+    return _playlist_to_response(db, playlist, current_user)
 
 
 @router.delete("/{playlist_id}/songs/{song_id}", status_code=status.HTTP_204_NO_CONTENT)
