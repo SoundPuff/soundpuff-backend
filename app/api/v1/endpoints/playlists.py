@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func, or_
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
@@ -51,7 +52,18 @@ def _set_playlist_is_liked(db: Session, playlist: Playlist, current_user: Option
 def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optional[User]) -> dict:
     """Convert a playlist model to a response dict with is_liked."""
     _normalize_privacy(playlist)
-    is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id if current_user else None)
+
+    # Prefer pre-fetched values set by list/feed endpoints; fall back to
+    # per-playlist queries/properties for single-object endpoints.
+    pre_likes_count = getattr(playlist, "_prefetched_likes_count", None)
+    pre_comments_count = getattr(playlist, "_prefetched_comments_count", None)
+    pre_is_liked = getattr(playlist, "_prefetched_is_liked", None)
+
+    is_liked = (
+        bool(pre_is_liked)
+        if pre_is_liked is not None
+        else _check_user_liked_playlist(db, playlist.id, current_user.id if current_user else None)
+    )
     
     return {
         "id": playlist.id,
@@ -64,10 +76,57 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "updated_at": playlist.updated_at,
         "owner": playlist.owner,
         "songs": list(playlist.songs or []),
-        "likes_count": playlist.likes_count,
-        "comments_count": playlist.comments_count,
+        "likes_count": int(pre_likes_count) if pre_likes_count is not None else playlist.likes_count,
+        "comments_count": int(pre_comments_count) if pre_comments_count is not None else playlist.comments_count,
         "is_liked": is_liked,
     }
+
+
+def _prefetch_playlist_stats(
+    db: Session,
+    playlists: List[Playlist],
+    current_user: Optional[User],
+) -> None:
+    """Annotate playlists with bulk-fetched counts and liked state.
+
+    Avoids triggering lazy-loads for likes/comments relationships and avoids
+    per-playlist queries for the current user's liked state.
+    """
+
+    playlist_ids = [p.id for p in playlists]
+    if not playlist_ids:
+        return
+
+    likes_counts = dict(
+        db.query(Like.playlist_id, func.count(Like.playlist_id))
+        .filter(Like.playlist_id.in_(playlist_ids))
+        .group_by(Like.playlist_id)
+        .all()
+    )
+
+    comments_counts = dict(
+        db.query(Comment.playlist_id, func.count(Comment.id))
+        .filter(Comment.playlist_id.in_(playlist_ids))
+        .group_by(Comment.playlist_id)
+        .all()
+    )
+
+    liked_ids = set()
+    if current_user is not None:
+        liked_ids = {
+            pid
+            for (pid,) in db.query(Like.playlist_id)
+            .filter(
+                Like.user_id == current_user.id,
+                Like.playlist_id.in_(playlist_ids),
+            )
+            .all()
+        }
+
+    for playlist in playlists:
+        playlist._prefetched_likes_count = int(likes_counts.get(playlist.id, 0))
+        playlist._prefetched_comments_count = int(comments_counts.get(playlist.id, 0))
+        playlist._prefetched_is_liked = playlist.id in liked_ids
 
 def _set_comment_like_state(db: Session, comment: Comment, current_user: Optional[User]):
     """Annotate comment with whether the current user liked it, including replies."""
@@ -136,7 +195,10 @@ def read_playlists(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    query = db.query(Playlist)
+    query = db.query(Playlist).options(
+        selectinload(Playlist.owner),
+        selectinload(Playlist.songs),
+    )
 
     if current_user is None:
         query = query.filter(Playlist.privacy == "public")
@@ -144,6 +206,7 @@ def read_playlists(
         query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
 
     playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
+    _prefetch_playlist_stats(db, playlists, current_user)
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
@@ -164,12 +227,21 @@ def read_feed(
     if not following_ids:
         return []
 
-    playlists = db.query(Playlist).filter(
-        Playlist.user_id.in_(following_ids)
-    ).filter(
-        or_(Playlist.privacy == "public", Playlist.user_id == current_user.id)
-    ).order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
+    playlists = (
+        db.query(Playlist)
+        .options(
+            selectinload(Playlist.owner),
+            selectinload(Playlist.songs),
+        )
+        .filter(Playlist.user_id.in_(following_ids))
+        .filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
+        .order_by(desc(Playlist.created_at))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
+    _prefetch_playlist_stats(db, playlists, current_user)
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
@@ -228,13 +300,24 @@ def read_playlist(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = (
+        db.query(Playlist)
+        .options(
+            selectinload(Playlist.owner),
+            selectinload(Playlist.songs),
+        )
+        .filter(Playlist.id == playlist_id)
+        .first()
+    )
     if not playlist:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Playlist not found"
         )
     _ensure_playlist_accessible(playlist, current_user)
+
+    # Avoid triggering lazy-loads for counts/liked state.
+    _prefetch_playlist_stats(db, [playlist], current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
