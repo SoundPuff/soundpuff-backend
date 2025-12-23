@@ -142,6 +142,23 @@ def test_signup_missing_access_token_returns_500(client):
     assert resp.json()["detail"] == "Failed to generate access token"
 
 
+def test_signup_malicious_username_rejected_before_supabase(client):
+    calls = {}
+
+    def _should_not_call(_payload):
+        calls["called"] = True
+
+    supabase = SimpleNamespace(auth=SimpleNamespace(sign_up=_should_not_call))
+    app.dependency_overrides[get_supabase_client] = lambda: supabase
+
+    payload = {"email": "evil@example.com", "password": "SecurePassword123!", "username": "<script></script>\x00"}
+    resp = client.post("/api/v1/auth/signup", json=payload)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Invalid username"
+    assert "called" not in calls
+
+
 def test_login_success_returns_token(client):
     access_token = "access-token-abc"
     supabase = SimpleNamespace(
@@ -322,3 +339,9 @@ def test_logout_invalid_token_returns_401(client):
     resp = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer bad-token"})
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid token"
+
+
+def test_logout_missing_authorization_header_returns_403(client):
+    resp = client.post("/api/v1/auth/logout")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Not authenticated"

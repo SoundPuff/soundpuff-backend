@@ -425,6 +425,33 @@ def test_create_playlist_no_auth_returns_403(client):
     assert resp.status_code == 403
 
 
+def test_create_playlist_strips_html_and_control_chars(client, current_user, db_session):
+    """Hostile input with tags/control chars is sanitized before persistence."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(
+        "/api/v1/playlists/",
+        json={
+            "title": "   <b>Play</b>\x00  ",
+            "description": "<i>desc</i>\x07",
+            "privacy": "public",
+            "cover_image_url": " https://example.com/cover.png<script>alert(1)</script> ",
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["title"] == "Play"
+    assert body["description"] == "desc"
+    assert "<" not in body["cover_image_url"] and ">" not in body["cover_image_url"]
+    assert body["cover_image_url"].startswith("https://example.com/cover.png")
+
+    persisted = db_session.query(Playlist).filter(Playlist.id == body["id"]).first()
+    assert persisted.title == "Play"
+    assert persisted.description == "desc"
+    assert persisted.cover_image_url.startswith("https://example.com/cover.png")
+
+
 def test_create_playlist_with_song_ids_adds_unique_songs(
     client,
     current_user,
@@ -1014,6 +1041,27 @@ def test_create_comment_blank_body_returns_400(client, current_user, public_play
 
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Comment body is required"
+
+
+def test_create_comment_strips_html_and_control_chars(client, current_user, public_playlist, db_session):
+    """Hostile comment payloads are sanitized before storage."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    hostile_body = " <script>alert(1)</script>\x07Great playlist"
+    resp = client.post(
+        f"/api/v1/playlists/{public_playlist.id}/comments",
+        json={"body": hostile_body, "playlist_id": public_playlist.id},
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "<" not in body["body"] and ">" not in body["body"]
+    assert "\x07" not in body["body"]
+    assert body["body"].startswith("alert(1)")
+
+    saved = db_session.query(Comment).filter(Comment.id == body["id"]).first()
+    assert saved is not None
+    assert saved.body == body["body"]
 
 
 def test_create_comment_private_playlist_owner(client, current_user, private_playlist):
