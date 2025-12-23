@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 from app.schemas.user import User
@@ -7,10 +7,11 @@ from app.schemas.user import User
 
 class CommentBase(BaseModel):
     body: str
+    parent_comment_id: Optional[int] = None
 
 
 class CommentCreate(CommentBase):
-    playlist_id: int
+    pass
 
 
 class CommentUpdate(BaseModel):
@@ -29,3 +30,6 @@ class CommentInDB(CommentBase):
 
 class Comment(CommentInDB):
     user: User
+    replies: List["Comment"] = []
+
+Comment.model_rebuild()
