@@ -10,6 +10,7 @@ class PlaylistBase(BaseModel):
     title: str
     description: Optional[str] = None
     privacy: Literal["public", "private"] = "public"
+    cover_image_url: Optional[str] = None
 
 
 class PlaylistCreate(PlaylistBase):
@@ -20,6 +21,7 @@ class PlaylistUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     privacy: Optional[Literal["public", "private"]] = None
+    cover_image_url: Optional[str] = None
     
 
 

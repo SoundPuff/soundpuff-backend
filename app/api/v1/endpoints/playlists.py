@@ -46,6 +46,7 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "title": playlist.title,
         "description": playlist.description,
         "privacy": playlist.privacy,
+        "cover_image_url": playlist.cover_image_url,
         "user_id": playlist.user_id,
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,
@@ -180,6 +181,10 @@ def create_playlist(
         title=title,
         description=description,
         privacy=playlist_in.privacy,
+        cover_image_url=sanitize_text(
+            playlist_in.cover_image_url,
+            settings.PLAYLIST_COVER_IMAGE_URL_MAX_LENGTH,
+        ),
         user_id=current_user.id
     )
     db.add(playlist)
@@ -240,7 +245,11 @@ def update_playlist(
         playlist.description = sanitize_text(playlist_in.description, settings.PLAYLIST_DESCRIPTION_MAX_LENGTH)
     if playlist_in.privacy is not None:
         playlist.privacy = playlist_in.privacy
-    # Removed cover image handling (no longer supported)
+    if playlist_in.cover_image_url is not None:
+        playlist.cover_image_url = sanitize_text(
+            playlist_in.cover_image_url,
+            settings.PLAYLIST_COVER_IMAGE_URL_MAX_LENGTH,
+        )
 
     db.commit()
     db.refresh(playlist)

@@ -120,12 +120,13 @@ def another_song(db_session):
     return song
 
 
-def _create_playlist(db_session, user, title, description="", privacy="public"):
+def _create_playlist(db_session, user, title, description="", privacy="public", cover_image_url=None):
     """Helper to create a playlist and ensure it gets an ID."""
     playlist = Playlist(
         id=_get_next_playlist_id(),
         title=title,
         description=description,
+        cover_image_url=cover_image_url,
         privacy=privacy,
         user_id=user.id
     )
@@ -359,18 +360,25 @@ def test_create_playlist_success(client, current_user, db_session):
 
     resp = client.post(
         "/api/v1/playlists/",
-        json={"title": "New Playlist", "description": "A new playlist", "privacy": "public"}
+        json={
+            "title": "New Playlist",
+            "description": "A new playlist",
+            "privacy": "public",
+            "cover_image_url": "https://example.com/cover.png",
+        }
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["title"] == "New Playlist"
     assert body["description"] == "A new playlist"
     assert body["privacy"] == "public"
+    assert body["cover_image_url"] == "https://example.com/cover.png"
 
     # Verify in DB
     playlist = db_session.query(Playlist).filter(Playlist.title == "New Playlist").first()
     assert playlist is not None
     assert playlist.user_id == current_user.id
+    assert playlist.cover_image_url == "https://example.com/cover.png"
 
 
 def test_create_playlist_default_privacy(client, current_user):
@@ -464,24 +472,31 @@ def test_update_playlist_success(client, current_user, public_playlist, db_sessi
 
     resp = client.put(
         f"/api/v1/playlists/{public_playlist.id}",
-        json={"title": "Updated Title", "description": "Updated desc", "privacy": "private"}
+        json={
+            "title": "Updated Title",
+            "description": "Updated desc",
+            "privacy": "private",
+            "cover_image_url": "https://example.com/new-cover.png",
+        }
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["title"] == "Updated Title"
     assert body["description"] == "Updated desc"
     assert body["privacy"] == "private"
+    assert body["cover_image_url"] == "https://example.com/new-cover.png"
 
     # Verify in DB
     playlist = db_session.query(Playlist).filter(Playlist.id == public_playlist.id).first()
     assert playlist.title == "Updated Title"
-
+    assert playlist.cover_image_url == "https://example.com/new-cover.png"
 
 def test_update_playlist_partial(client, current_user, public_playlist):
     """Test partial update of playlist."""
     app.dependency_overrides[get_current_user] = lambda: current_user
 
     original_description = public_playlist.description
+    original_cover = public_playlist.cover_image_url
     resp = client.put(
         f"/api/v1/playlists/{public_playlist.id}",
         json={"title": "New Title"}
@@ -490,6 +505,7 @@ def test_update_playlist_partial(client, current_user, public_playlist):
     body = resp.json()
     assert body["title"] == "New Title"
     assert body["description"] == original_description
+    assert body["cover_image_url"] == original_cover
 
 
 def test_update_playlist_not_found(client, current_user):
