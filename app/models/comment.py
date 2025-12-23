@@ -30,3 +30,12 @@ class Comment(Base):
         passive_deletes=True,
         cascade="save-update",
     )
+    likes = relationship("CommentLike", back_populates="comment", cascade="all, delete-orphan")
+
+    @property
+    def likes_count(self) -> int:
+        return len(self.likes)
+
+    @property
+    def is_liked(self) -> bool:
+        return getattr(self, "_is_liked", False)

@@ -8,12 +8,13 @@ from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import User, Playlist, Like, Comment, Follow
+from app.models import User, Playlist, Like, Comment, Follow, CommentLike
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
 from app.schemas.playlist import PlaylistAddSong
 from app.models import Song
 from app.schemas.like import Like as LikeSchema
 from app.schemas.comment import Comment as CommentSchema, CommentCreate, CommentUpdate
+from app.schemas.comment_like import CommentLike as CommentLikeSchema
 
 router = APIRouter()
 
@@ -26,6 +27,17 @@ def _check_user_liked_playlist(db: Session, playlist_id: int, user_id) -> bool:
         Like.user_id == user_id,
         Like.playlist_id == playlist_id
     ).first() is not None
+
+def _check_user_liked_comment(db: Session, comment_id: int, user_id) -> bool:
+    """Check if a user has liked a specific comment."""
+    if user_id is None:
+        return False
+
+    return db.query(CommentLike).filter(
+        CommentLike.user_id == user_id,
+        CommentLike.comment_id == comment_id,
+    ).first() is not None
+
 
 
 def _set_playlist_is_liked(db: Session, playlist: Playlist, current_user: Optional[User]):
@@ -55,6 +67,18 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "comments_count": playlist.comments_count,
         "is_liked": is_liked,
     }
+
+def _set_comment_like_state(db: Session, comment: Comment, current_user: Optional[User]):
+    """Annotate comment with whether the current user liked it, including replies."""
+    if comment is None:
+        return
+
+    user_id = current_user.id if current_user else None
+    comment._is_liked = _check_user_liked_comment(db, comment.id, user_id)
+
+    for reply in getattr(comment, "replies", []) or []:
+        _set_comment_like_state(db, reply, current_user)
+
 
 
 def _ensure_playlist_accessible(playlist: Playlist, current_user: Optional[User]):
@@ -360,6 +384,8 @@ def read_playlist_comments(
         comments_query = comments_query.filter(Comment.parent_comment_id == parent_comment_id)
 
     comments = comments_query.order_by(desc(Comment.created_at)).all()
+    for comment in comments:
+        _set_comment_like_state(db, comment, current_user)
     return comments
 
 
@@ -540,5 +566,76 @@ def delete_comment(
     )
 
     db.delete(comment)
+    db.commit()
+    return None
+
+@router.post("/comments/{comment_id}/like", response_model=CommentLikeSchema, status_code=status.HTTP_201_CREATED)
+def like_comment(
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found",
+        )
+
+    _ensure_playlist_accessible(comment.playlist, current_user)
+
+    existing_like = db.query(CommentLike).filter(
+        CommentLike.user_id == current_user.id,
+        CommentLike.comment_id == comment_id,
+    ).first()
+
+    if existing_like:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already liked this comment",
+        )
+
+    like = CommentLike(user_id=current_user.id, comment_id=comment_id)
+    db.add(like)
+    try:
+        db.commit()
+        db.refresh(like)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Already liked this comment",
+        )
+
+    return like
+
+
+@router.delete("/comments/{comment_id}/like", status_code=status.HTTP_204_NO_CONTENT)
+def unlike_comment(
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found",
+        )
+
+    _ensure_playlist_accessible(comment.playlist, current_user)
+
+    like = db.query(CommentLike).filter(
+        CommentLike.user_id == current_user.id,
+        CommentLike.comment_id == comment_id,
+    ).first()
+
+    if not like:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Like not found",
+        )
+
+    db.delete(like)
     db.commit()
     return None

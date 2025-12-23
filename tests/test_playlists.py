@@ -9,7 +9,7 @@ from app.main import app
 from app.db.base_class import Base
 from app.db.session import get_db
 from app.core.deps import get_current_user, get_current_user_optional
-from app.models import User, Playlist, Song, Like, Comment, Follow
+from app.models import User, Playlist, Song, Like, Comment, Follow, CommentLike
 
 
 # Track next IDs for BigInteger primary keys in SQLite
@@ -151,6 +151,16 @@ def private_playlist(db_session, current_user):
 def other_public_playlist(db_session, other_user):
     """Create a public playlist owned by other_user."""
     return _create_playlist(db_session, other_user, "Other Public Playlist", "Someone else's public", "public")
+
+@pytest.fixture
+def playlist_comment(db_session, current_user, public_playlist):
+    """Create a comment on the public playlist."""
+    comment = Comment(body="Hello world", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(comment)
+    db_session.commit()
+    db_session.refresh(comment)
+    return comment
+
 
 
 # ==================== GET / (list playlists) tests ====================
@@ -828,6 +838,21 @@ def test_get_playlist_comments_success(client, current_user, public_playlist, db
     bodies = {c["body"] for c in comments}
     assert bodies == {"First comment", "Second comment"}
 
+def test_get_playlist_comments_includes_like_state(client, current_user, public_playlist, playlist_comment, db_session):
+    """Comment list should include likes_count and is_liked fields."""
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+
+    like = CommentLike(user_id=current_user.id, comment_id=playlist_comment.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/playlists/{public_playlist.id}/comments")
+    assert resp.status_code == 200
+    comment = next(c for c in resp.json() if c["id"] == playlist_comment.id)
+    assert comment["likes_count"] == 1
+    assert comment["is_liked"] is True
+
+
 
 def test_get_playlist_comments_private_unauthenticated(client, current_user, db_session):
     """Test getting comments from private playlist requires proper auth."""
@@ -1028,4 +1053,111 @@ def test_delete_comment_no_auth(client, public_playlist, db_session):
     db_session.commit()
 
     resp = client.delete(f"/api/v1/playlists/comments/{comment.id}")
+    assert resp.status_code == 403
+
+# ==================== POST /comments/{comment_id}/like tests ====================
+
+
+def test_like_comment_success(client, current_user, playlist_comment, db_session):
+    """Test liking a comment."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["user_id"] == str(current_user.id)
+    assert body["comment_id"] == playlist_comment.id
+
+    like = db_session.query(CommentLike).filter(
+        CommentLike.user_id == current_user.id,
+        CommentLike.comment_id == playlist_comment.id,
+    ).first()
+    assert like is not None
+
+
+def test_like_comment_not_found(client, current_user):
+    """Liking a nonexistent comment returns 404."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post("/api/v1/playlists/comments/99999/like")
+    assert resp.status_code == 404
+
+
+def test_like_comment_private_not_accessible(client, current_user, other_user, db_session):
+    """Cannot like comments on someone else's private playlist."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    private_playlist = _create_playlist(db_session, other_user, "Private", "", "private")
+    private_comment = Comment(body="Hidden", user_id=other_user.id, playlist_id=private_playlist.id)
+    db_session.add(private_comment)
+    db_session.commit()
+
+    resp = client.post(f"/api/v1/playlists/comments/{private_comment.id}/like")
+    assert resp.status_code == 404
+
+
+def test_like_comment_already_liked(client, current_user, playlist_comment, db_session):
+    """Liking same comment twice returns error."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 201
+
+    resp = client.post(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Already liked this comment"
+
+
+def test_like_comment_no_auth(client, playlist_comment):
+    """Liking comment without auth is forbidden."""
+    resp = client.post(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 403
+
+
+# ==================== DELETE /comments/{comment_id}/like tests ====================
+
+
+def test_unlike_comment_success(client, current_user, playlist_comment, db_session):
+    """Test unliking a comment."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    like = CommentLike(user_id=current_user.id, comment_id=playlist_comment.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 204
+
+    like = db_session.query(CommentLike).filter(
+        CommentLike.user_id == current_user.id,
+        CommentLike.comment_id == playlist_comment.id,
+    ).first()
+    assert like is None
+
+
+def test_unlike_comment_not_liked(client, current_user, playlist_comment):
+    """Unliking a comment you did not like returns 404."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.delete(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Like not found"
+
+
+def test_unlike_comment_not_found(client, current_user):
+    """Unliking a nonexistent comment returns 404."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.delete("/api/v1/playlists/comments/99999/like")
+    assert resp.status_code == 404
+
+
+def test_unlike_comment_no_auth(client, playlist_comment, db_session):
+    """Unliking comment requires authentication."""
+
+    like = CommentLike(user_id=playlist_comment.user_id, comment_id=playlist_comment.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/playlists/comments/{playlist_comment.id}/like")
     assert resp.status_code == 403

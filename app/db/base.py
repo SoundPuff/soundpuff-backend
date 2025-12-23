@@ -6,4 +6,5 @@ from app.models.playlist import Playlist
 from app.models.song import Song
 from app.models.comment import Comment
 from app.models.like import Like
+from app.models.comment_like import CommentLike
 from app.models.follow import Follow
