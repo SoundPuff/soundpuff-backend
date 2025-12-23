@@ -274,7 +274,20 @@ def update_playlist(
             playlist_in.cover_image_url,
             settings.PLAYLIST_COVER_IMAGE_URL_MAX_LENGTH,
         )
-
+    if playlist_in.song_ids is not None:
+        songs_to_set = []
+        if playlist_in.song_ids:
+            unique_song_ids = list(dict.fromkeys(playlist_in.song_ids))
+            songs_to_set = db.query(Song).filter(Song.id.in_(unique_song_ids)).all()
+            found_ids = {song.id for song in songs_to_set}
+            missing_ids = [sid for sid in unique_song_ids if sid not in found_ids]
+            if missing_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Songs not found: {missing_ids}"
+                )
+        playlist.songs = songs_to_set
+        
     db.commit()
     db.refresh(playlist)
     return _playlist_to_response(db, playlist, current_user)

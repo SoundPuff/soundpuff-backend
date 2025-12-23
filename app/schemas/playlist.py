@@ -22,6 +22,7 @@ class PlaylistUpdate(BaseModel):
     description: Optional[str] = None
     privacy: Optional[Literal["public", "private"]] = None
     cover_image_url: Optional[str] = None
+    song_ids: Optional[List[int]] = None
     
 
 
