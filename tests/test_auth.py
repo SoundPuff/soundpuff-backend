@@ -249,3 +249,76 @@ def test_password_reset_confirm_update_fails_returns_400(client):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Failed to update password"
+
+
+def test_refresh_token_success_returns_new_tokens(client):
+    access_token = "new-access-token"
+    refresh_token = "new-refresh-token"
+
+    supabase = SimpleNamespace(
+        auth=SimpleNamespace(
+            refresh_session=lambda refresh: _supabase_auth_response(
+                user_id=str(uuid.uuid4()),
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
+        )
+    )
+    app.dependency_overrides[get_supabase_client] = lambda: supabase
+
+    resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "old-token"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_token"] == access_token
+    assert body["refresh_token"] == refresh_token
+    assert body["token_type"] == "bearer"
+
+
+def test_refresh_token_invalid_returns_401(client):
+    supabase = SimpleNamespace(
+        auth=SimpleNamespace(
+            refresh_session=lambda refresh: _supabase_auth_response(
+                user_id=None,
+                access_token=None,
+            )
+        )
+    )
+    app.dependency_overrides[get_supabase_client] = lambda: supabase
+
+    resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "bad-token"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid or expired refresh token"
+
+
+def test_logout_revokes_session(client):
+    calls = {}
+
+    def _get_user(token):
+        calls["token"] = token
+        return SimpleNamespace(user=SimpleNamespace(id=str(uuid.uuid4())))
+
+    def _sign_out(payload):
+        calls["scope"] = payload.get("scope") if isinstance(payload, dict) else None
+
+    supabase = SimpleNamespace(auth=SimpleNamespace(get_user=_get_user, sign_out=_sign_out))
+    app.dependency_overrides[get_supabase_client] = lambda: supabase
+
+    resp = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer logout-token"})
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "Successfully logged out"
+    assert calls["token"] == "logout-token"
+    assert calls["scope"] == "global"
+
+
+def test_logout_invalid_token_returns_401(client):
+    supabase = SimpleNamespace(
+        auth=SimpleNamespace(
+            get_user=lambda token: SimpleNamespace(user=None),
+            sign_out=lambda payload: None,
+        )
+    )
+    app.dependency_overrides[get_supabase_client] = lambda: supabase
+
+    resp = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer bad-token"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid token"

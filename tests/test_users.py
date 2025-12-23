@@ -105,6 +105,30 @@ def test_read_current_user_success(client, current_user):
     assert body["id"] == str(current_user.id)
 
 
+def test_read_current_user_includes_liked_and_owned_playlists(client, current_user, other_user, db_session):
+    """Response should include liked_playlists and own playlists with is_liked markers."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    owned = Playlist(title="mine", description=None, privacy="public", user_id=current_user.id)
+    liked = Playlist(title="liked", description=None, privacy="public", user_id=other_user.id)
+    db_session.add_all([owned, liked])
+    db_session.commit()
+
+    db_session.add(Like(user_id=current_user.id, playlist_id=liked.id))
+    db_session.commit()
+
+    resp = client.get("/api/v1/users/me")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    liked_titles = {p["title"] for p in body["liked_playlists"]}
+    assert "liked" in liked_titles
+    assert all(p["is_liked"] is True for p in body["liked_playlists"])
+
+    own = next(p for p in body["playlists"] if p["title"] == "mine")
+    assert own["is_liked"] is False
+
+
 def test_read_current_user_no_auth_returns_403(client):
     """Test that /me endpoint returns 403 without auth."""
     resp = client.get("/api/v1/users/me")

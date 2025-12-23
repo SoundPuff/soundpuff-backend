@@ -156,6 +156,38 @@ def test_search_playlists_matches_title(client, berra_user, elif_playlist):
     assert "elif" in titles
 
 
+def test_search_playlists_filters_private_to_owner(client, berra_user, elif_playlist, db_session):
+    """Owner should see their private playlists while others remain hidden."""
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Private playlist owned by current user
+    private_owned = Playlist(title="secret", description=None, privacy="private", user_id=berra_user.id)
+    db_session.add(private_owned)
+
+    # Private playlist owned by someone else should not appear
+    stranger = User(id=uuid.uuid4(), username="stranger")
+    db_session.add(stranger)
+    private_foreign = Playlist(title="hidden", description=None, privacy="private", user_id=stranger.id)
+    db_session.add(private_foreign)
+    db_session.commit()
+
+    db_session.add(Like(user_id=berra_user.id, playlist_id=private_owned.id))
+    db_session.commit()
+
+    resp = client.get("/api/v1/songs/playlists/search?query=secret")
+    assert resp.status_code == 200
+    playlists = resp.json()["playlists"]
+
+    # Only own private playlist should be returned
+    assert len(playlists) == 1
+    item = playlists[0]["playlist"]
+    assert item["id"] == private_owned.id
+    assert item["privacy"] == "private"
+
+    # Ensure stranger's private playlist was excluded
+    assert all(p["playlist"]["id"] != private_foreign.id for p in playlists)
+
+
 def test_search_playlists_includes_counts(client, berra_user, elif_playlist, db_session):
     """Test that playlist search response includes likes_count and comments_count."""
     app.dependency_overrides[get_current_user] = lambda: berra_user
@@ -194,3 +226,26 @@ def test_combined_search_returns_all_types(client, berra_user, hit_em_up, elif_p
     b2 = resp2.json()
     assert b2["total_playlists"] >= 1
     assert any(p["playlist"]["title"] == "elif" for p in b2["playlists"])
+
+
+def test_combined_search_excludes_private_playlists_of_others(client, berra_user, db_session):
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Own private playlist should be visible
+    own_private = Playlist(title="own secret", description=None, privacy="private", user_id=berra_user.id)
+    db_session.add(own_private)
+
+    # Other user's private playlist should be hidden
+    stranger = User(id=uuid.uuid4(), username="stranger2")
+    db_session.add(stranger)
+    foreign_private = Playlist(title="stranger secret", description=None, privacy="private", user_id=stranger.id)
+    db_session.add(foreign_private)
+    db_session.commit()
+
+    resp = client.get("/api/v1/songs/all?query=secret&type=playlists")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    titles = {p["playlist"]["title"] for p in body["playlists"]}
+    assert "own secret" in titles
+    assert "stranger secret" not in titles

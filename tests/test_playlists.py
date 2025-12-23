@@ -403,6 +403,19 @@ def test_create_playlist_default_privacy(client, current_user):
     assert resp.json()["privacy"] == "public"
 
 
+def test_create_playlist_blank_title_returns_400(client, current_user):
+    """Title is required and whitespace-only values are rejected."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(
+        "/api/v1/playlists/",
+        json={"title": "   ", "description": "ignored"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Playlist title is required"
+
+
 def test_create_playlist_no_auth_returns_403(client):
     """Test that creating a playlist requires auth."""
     resp = client.post(
@@ -410,6 +423,47 @@ def test_create_playlist_no_auth_returns_403(client):
         json={"title": "Test"}
     )
     assert resp.status_code == 403
+
+
+def test_create_playlist_with_song_ids_adds_unique_songs(
+    client,
+    current_user,
+    test_song,
+    another_song,
+    db_session,
+):
+    """Creating a playlist with song_ids should attach unique songs once."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(
+        "/api/v1/playlists/",
+        json={
+            "title": "Playlist With Songs",
+            "song_ids": [test_song.id, another_song.id, test_song.id],
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert [s["id"] for s in body["songs"]] == [test_song.id, another_song.id]
+
+    created = db_session.query(Playlist).filter(Playlist.title == "Playlist With Songs").first()
+    assert created is not None
+    assert [s.id for s in created.songs] == [test_song.id, another_song.id]
+
+
+def test_create_playlist_with_missing_song_returns_404(client, current_user):
+    """Playlist creation should fail when referenced songs do not exist."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    missing_song_id = 999
+    resp = client.post(
+        "/api/v1/playlists/",
+        json={"title": "Broken", "song_ids": [missing_song_id]},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == f"Songs not found: [{missing_song_id}]"
 
 
 # ==================== GET /{playlist_id} tests ====================
@@ -500,6 +554,19 @@ def test_update_playlist_success(client, current_user, public_playlist, db_sessi
     playlist = db_session.query(Playlist).filter(Playlist.id == public_playlist.id).first()
     assert playlist.title == "Updated Title"
     assert playlist.cover_image_url == "https://example.com/new-cover.png"
+
+
+def test_update_playlist_blank_title_returns_400(client, current_user, public_playlist):
+    """Updating with blank title should be rejected."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.put(
+        f"/api/v1/playlists/{public_playlist.id}",
+        json={"title": "   "},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Playlist title is required"
 
 def test_update_playlist_partial(client, current_user, public_playlist):
     """Test partial update of playlist."""
@@ -869,6 +936,36 @@ def test_get_playlist_comments_includes_like_state(client, current_user, public_
     assert comment["is_liked"] is True
 
 
+def test_get_playlist_comments_filtered_by_parent_returns_replies(
+    client,
+    current_user,
+    public_playlist,
+    db_session,
+):
+    """Filtering by parent_comment_id should return only that comment's replies."""
+    app.dependency_overrides[get_current_user_optional] = lambda: current_user
+
+    parent = Comment(body="Parent", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(parent)
+    db_session.flush()
+
+    reply = Comment(
+        body="Child",
+        user_id=current_user.id,
+        playlist_id=public_playlist.id,
+        parent_comment_id=parent.id,
+    )
+    db_session.add(reply)
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/playlists/{public_playlist.id}/comments?parent_comment_id={parent.id}")
+    assert resp.status_code == 200
+    comments = resp.json()
+    assert len(comments) == 1
+    assert comments[0]["id"] == reply.id
+    assert comments[0]["parent_comment_id"] == parent.id
+
+
 
 def test_get_playlist_comments_private_unauthenticated(client, current_user, db_session):
     """Test getting comments from private playlist requires proper auth."""
@@ -906,6 +1003,19 @@ def test_create_comment_success(client, current_user, public_playlist, db_sessio
     assert comment.playlist_id == public_playlist.id
 
 
+def test_create_comment_blank_body_returns_400(client, current_user, public_playlist):
+    """Blank comment bodies should be rejected."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    resp = client.post(
+        f"/api/v1/playlists/{public_playlist.id}/comments",
+        json={"body": "   ", "playlist_id": public_playlist.id},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Comment body is required"
+
+
 def test_create_comment_private_playlist_owner(client, current_user, private_playlist):
     """Test creating comment on own private playlist."""
     app.dependency_overrides[get_current_user] = lambda: current_user
@@ -941,6 +1051,30 @@ def test_create_comment_playlist_not_found(client, current_user):
     assert resp.status_code == 404
 
 
+def test_create_comment_rejects_parent_from_other_playlist(client, current_user, other_user, db_session):
+    """Replies must reference a parent comment on the same playlist."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    target_playlist = _create_playlist(db_session, current_user, "Target")
+    foreign_playlist = _create_playlist(db_session, other_user, "Foreign")
+
+    foreign_comment = Comment(body="Elsewhere", user_id=other_user.id, playlist_id=foreign_playlist.id)
+    db_session.add(foreign_comment)
+    db_session.commit()
+
+    resp = client.post(
+        f"/api/v1/playlists/{target_playlist.id}/comments",
+        json={
+            "body": "Reply",
+            "playlist_id": target_playlist.id,
+            "parent_comment_id": foreign_comment.id,
+        },
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Parent comment not found"
+
+
 def test_create_comment_no_auth(client, public_playlist):
     """Test that creating comment requires auth."""
     resp = client.post(
@@ -970,6 +1104,23 @@ def test_update_comment_success(client, current_user, public_playlist, db_sessio
     assert resp.status_code == 200
     body = resp.json()
     assert body["body"] == "Updated"
+
+
+def test_update_comment_blank_body_returns_400(client, current_user, public_playlist, db_session):
+    """Updating a comment with blank body should fail validation."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    comment = Comment(body="Original", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(comment)
+    db_session.commit()
+
+    resp = client.put(
+        f"/api/v1/playlists/comments/{comment.id}",
+        json={"body": "   "},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Comment body is required"
 
 
 def test_update_comment_not_owner(client, current_user, other_user, public_playlist, db_session):
@@ -1035,6 +1186,34 @@ def test_delete_comment_success(client, current_user, public_playlist, db_sessio
     # Verify deleted
     deleted = db_session.query(Comment).filter(Comment.id == comment.id).first()
     assert deleted is None
+
+
+def test_delete_comment_detaches_replies(client, current_user, public_playlist, db_session):
+    """Deleting a comment should preserve and detach its replies."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    parent = Comment(body="Parent", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(parent)
+    db_session.flush()
+
+    reply = Comment(
+        body="Reply",
+        user_id=current_user.id,
+        playlist_id=public_playlist.id,
+        parent_comment_id=parent.id,
+    )
+    db_session.add(reply)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/playlists/comments/{parent.id}")
+    assert resp.status_code == 204
+
+    refreshed_reply = db_session.query(Comment).filter(Comment.id == reply.id).first()
+    assert refreshed_reply is not None
+    assert refreshed_reply.parent_comment_id is None
+
+    resp_comments = client.get(f"/api/v1/playlists/{public_playlist.id}/comments")
+    assert any(c["id"] == reply.id for c in resp_comments.json())
 
 
 def test_delete_comment_not_owner(client, current_user, other_user, public_playlist, db_session):
