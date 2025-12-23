@@ -50,7 +50,7 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,
         "owner": playlist.owner,
-        "songs": playlist.songs,
+        "songs": list(playlist.songs or []),
         "likes_count": playlist.likes_count,
         "comments_count": playlist.comments_count,
         "is_liked": is_liked,
