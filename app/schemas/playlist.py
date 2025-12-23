@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 from datetime import datetime
 from uuid import UUID
@@ -36,7 +36,7 @@ class PlaylistInDB(PlaylistBase):
 
 class Playlist(PlaylistInDB):
     owner: User
-    songs: List[Song] = []
+    songs: List[Song] = Field(default_factory=list)
     likes_count: int = 0
     comments_count: int = 0
     is_liked: bool = False
