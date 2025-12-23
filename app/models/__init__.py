@@ -6,6 +6,7 @@ from app.models.playlist import Playlist
 from app.models.comment import Comment
 from app.models.like import Like
 from app.models.follow import Follow
+from app.models.comment_like import CommentLike
 
 __all__ = [
     "User",
@@ -13,6 +14,7 @@ __all__ = [
     "Playlist",
     "Comment",
     "Like",
+    "CommentLike"
     "Follow",
     "playlist_songs",
 ]

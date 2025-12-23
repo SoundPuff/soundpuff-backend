@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -30,6 +30,8 @@ class CommentInDB(CommentBase):
 
 class Comment(CommentInDB):
     user: User
-    replies: List["Comment"] = []
+    replies: List["Comment"] = Field(default_factory=list)
+    likes_count: int = 0
+    is_liked: bool = False
 
 Comment.model_rebuild()
