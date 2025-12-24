@@ -128,16 +128,44 @@ def _prefetch_playlist_stats(
         playlist._prefetched_comments_count = int(comments_counts.get(playlist.id, 0))
         playlist._prefetched_is_liked = playlist.id in liked_ids
 
-def _set_comment_like_state(db: Session, comment: Comment, current_user: Optional[User]):
-    """Annotate comment with whether the current user liked it, including replies."""
-    if comment is None:
+def _flatten_comments(comments: List[Comment]) -> List[Comment]:
+    flattened: List[Comment] = []
+    stack = list(comments)
+    while stack:
+        comment = stack.pop()
+        flattened.append(comment)
+        replies = getattr(comment, "replies", []) or []
+        stack.extend(replies)
+    return flattened
+
+
+def _prefetch_comment_like_state(
+    db: Session,
+    comments: List[Comment],
+    current_user: Optional[User],
+) -> None:
+    """Bulk annotate comments with whether the current user liked them."""
+    if not comments:
         return
 
-    user_id = current_user.id if current_user else None
-    comment._is_liked = _check_user_liked_comment(db, comment.id, user_id)
+    flattened = _flatten_comments(comments)
+    if current_user is None:
+        for comment in flattened:
+            comment._is_liked = False
+        return
 
-    for reply in getattr(comment, "replies", []) or []:
-        _set_comment_like_state(db, reply, current_user)
+    comment_ids = [comment.id for comment in flattened]
+    liked_ids = {
+        cid
+        for (cid,) in db.query(CommentLike.comment_id)
+        .filter(
+            CommentLike.user_id == current_user.id,
+            CommentLike.comment_id.in_(comment_ids),
+        )
+        .all()
+    }
+    for comment in flattened:
+        comment._is_liked = comment.id in liked_ids
 
 
 
@@ -489,8 +517,7 @@ def read_playlist_comments(
         comments_query = comments_query.filter(Comment.parent_comment_id == parent_comment_id)
 
     comments = comments_query.order_by(desc(Comment.created_at)).all()
-    for comment in comments:
-        _set_comment_like_state(db, comment, current_user)
+    _prefetch_comment_like_state(db, comments, current_user)
     return comments
 
 
@@ -532,6 +559,7 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+    _prefetch_comment_like_state(db, [comment], current_user)
     return comment
 
 
@@ -576,6 +604,7 @@ def add_song_to_playlist(
     playlist.songs.append(song)
     db.commit()
     db.refresh(playlist)
+    _prefetch_comment_like_state(db, [comment], current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
