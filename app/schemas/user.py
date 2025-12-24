@@ -75,4 +75,7 @@ class PlaylistBrief(BaseModel):
 
 
 class UserWithPlaylists(User):
-    playlists: List[PlaylistBrief] = Field(default_factory=list)
+    followers_ids: List[UUID] = Field(default_factory=list)
+    following_ids: List[UUID] = Field(default_factory=list)
+    liked_playlist_ids: List[int] = Field(default_factory=list)
+    playlist_ids: List[int] = Field(default_factory=list)

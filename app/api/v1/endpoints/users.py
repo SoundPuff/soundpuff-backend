@@ -40,24 +40,46 @@ def _playlist_brief_response(playlist: Playlist, is_liked: bool = False) -> dict
 
 @router.get("/me", response_model=UserWithPlaylists)
 def read_current_user(
-    include_playlists: bool = False,
+    include_followers: bool = False,
+    include_following: bool = False,
+    include_liked_playlists: bool = False,
+    include_created_playlists: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    playlists = []
-    if include_playlists:
-        liked_ids = {
+    followers_ids: List = []
+    following_ids: List = []
+    liked_ids: List[int] = []
+    playlist_ids: List[int] = []
+
+    if include_followers:
+        followers_ids = [
+            row[0]
+            for row in db.query(Follow.follower_id)
+            .filter(Follow.following_id == current_user.id, User.is_deleted.is_(False))
+            .join(User, User.id == Follow.follower_id)
+            .all()
+        ]
+
+    if include_following:
+        following_ids = [
+            row[0]
+            for row in db.query(Follow.following_id)
+            .filter(Follow.follower_id == current_user.id, User.is_deleted.is_(False))
+            .join(User, User.id == Follow.following_id)
+            .all()
+        ]
+
+    if include_liked_playlists:
+        liked_ids = [
             row[0]
             for row in db.query(Like.playlist_id).filter(Like.user_id == current_user.id).all()
-        }
-        created_playlists = (
-            db.query(Playlist)
-            .filter(Playlist.user_id == current_user.id)
-            .all()
-        )
-        playlists = [
-            _playlist_brief_response(playlist, is_liked=playlist.id in liked_ids)
-            for playlist in created_playlists
+        ]
+
+    if include_created_playlists:
+        playlist_ids = [
+            row[0]
+            for row in db.query(Playlist.id).filter(Playlist.user_id == current_user.id).all()
         ]
 
     return {
@@ -66,7 +88,10 @@ def read_current_user(
         "bio": current_user.bio,
         "avatar_url": current_user.avatar_url,
         "created_at": current_user.created_at,
-        "playlists": playlists,
+        "followers_ids": followers_ids,
+        "following_ids": following_ids,
+        "liked_playlist_ids": liked_ids,
+        "playlist_ids": playlist_ids,
     }
 
 
