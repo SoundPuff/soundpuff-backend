@@ -105,8 +105,8 @@ def test_read_current_user_success(client, current_user):
     assert body["id"] == str(current_user.id)
 
 
-def test_read_current_user_includes_liked_and_owned_playlists(client, current_user, other_user, db_session):
-    """Response should include liked_playlists and own playlists with is_liked markers."""
+def test_read_current_user_returns_ids_when_requested(client, current_user, other_user, db_session):
+    """Response should include only IDs for liked and created playlists when requested."""
     app.dependency_overrides[get_current_user] = lambda: current_user
 
     owned = Playlist(title="mine", description=None, privacy="public", user_id=current_user.id)
@@ -117,16 +117,16 @@ def test_read_current_user_includes_liked_and_owned_playlists(client, current_us
     db_session.add(Like(user_id=current_user.id, playlist_id=liked.id))
     db_session.commit()
 
-    resp = client.get("/api/v1/users/me")
+    resp = client.get(
+        "/api/v1/users/me"
+        "?include_liked_playlists=true"
+        "&include_created_playlists=true"
+    )
     assert resp.status_code == 200
     body = resp.json()
 
-    liked_titles = {p["title"] for p in body["liked_playlists"]}
-    assert "liked" in liked_titles
-    assert all(p["is_liked"] is True for p in body["liked_playlists"])
-
-    own = next(p for p in body["playlists"] if p["title"] == "mine")
-    assert own["is_liked"] is False
+    assert liked.id in body["liked_playlist_ids"]
+    assert owned.id in body["playlist_ids"]
 
 
 def test_read_current_user_no_auth_returns_403(client):
