@@ -74,8 +74,5 @@ class PlaylistBrief(BaseModel):
         from_attributes = True
 
 
-class UserWithRelations(User):
-    followers: List[User] = Field(default_factory=list)
-    following: List[User] = Field(default_factory=list)
-    liked_playlists: List[PlaylistBrief] = Field(default_factory=list)
+class UserWithPlaylists(User):
     playlists: List[PlaylistBrief] = Field(default_factory=list)
