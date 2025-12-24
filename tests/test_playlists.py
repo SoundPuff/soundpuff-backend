@@ -1023,6 +1023,7 @@ def test_create_comment_success(client, current_user, public_playlist, db_sessio
     body = resp.json()
     assert body["body"] == "Great playlist!"
     assert body["user_id"] == str(current_user.id)
+    assert body["is_liked"] is False
 
     # Verify in DB
     comment = db_session.query(Comment).filter(Comment.body == "Great playlist!").first()
@@ -1152,6 +1153,29 @@ def test_update_comment_success(client, current_user, public_playlist, db_sessio
     assert resp.status_code == 200
     body = resp.json()
     assert body["body"] == "Updated"
+    assert body["is_liked"] is False
+    
+
+def test_update_comment_returns_like_state(client, current_user, public_playlist, db_session):
+    """Updating a comment should include whether the user liked it."""
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    comment = Comment(body="Original", user_id=current_user.id, playlist_id=public_playlist.id)
+    db_session.add(comment)
+    db_session.flush()
+
+    like = CommentLike(user_id=current_user.id, comment_id=comment.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.put(
+        f"/api/v1/playlists/comments/{comment.id}",
+        json={"body": "Updated"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_liked"] is True
 
 
 def test_update_comment_blank_body_returns_400(client, current_user, public_playlist, db_session):
