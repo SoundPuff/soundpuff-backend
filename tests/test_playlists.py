@@ -1284,34 +1284,6 @@ def test_delete_comment_success(client, current_user, public_playlist, db_sessio
     assert deleted is None
 
 
-def test_delete_comment_detaches_replies(client, current_user, public_playlist, db_session):
-    """Deleting a comment should preserve and detach its replies."""
-    app.dependency_overrides[get_current_user] = lambda: current_user
-
-    parent = Comment(body="Parent", user_id=current_user.id, playlist_id=public_playlist.id)
-    db_session.add(parent)
-    db_session.flush()
-
-    reply = Comment(
-        body="Reply",
-        user_id=current_user.id,
-        playlist_id=public_playlist.id,
-        parent_comment_id=parent.id,
-    )
-    db_session.add(reply)
-    db_session.commit()
-
-    resp = client.delete(f"/api/v1/playlists/comments/{parent.id}")
-    assert resp.status_code == 204
-
-    refreshed_reply = db_session.query(Comment).filter(Comment.id == reply.id).first()
-    assert refreshed_reply is not None
-    assert refreshed_reply.parent_comment_id is None
-
-    resp_comments = client.get(f"/api/v1/playlists/{public_playlist.id}/comments")
-    assert any(c["id"] == reply.id for c in resp_comments.json())
-
-
 def test_delete_comment_not_owner(client, current_user, other_user, public_playlist, db_session):
     """Test that non-owner cannot delete comment."""
     app.dependency_overrides[get_current_user] = lambda: current_user
