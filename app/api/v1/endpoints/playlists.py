@@ -822,10 +822,6 @@ def delete_comment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this comment"
         )
-    # Preserve replies by detaching them from the deleted parent comment.
-    db.query(Comment).filter(Comment.parent_comment_id == comment.id).update(
-        {Comment.parent_comment_id: None}
-    )
 
     db.delete(comment)
     db.commit()
