@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 from app.main import app
 from app.db.base_class import Base
@@ -40,6 +42,12 @@ def _engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(bind=engine)
     return engine
 
@@ -77,7 +85,7 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=True)
 
 
 @pytest.fixture
