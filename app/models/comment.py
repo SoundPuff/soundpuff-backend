@@ -11,7 +11,7 @@ class Comment(Base):
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
     body = Column(Text, nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    playlist_id = Column(BigInteger, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False)
+    playlist_id = Column(BigInteger, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False, index=True)
     parent_comment_id = Column(BigInteger, ForeignKey("comments.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

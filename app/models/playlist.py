@@ -14,8 +14,8 @@ class Playlist(Base):
     description = Column(Text, nullable=True)
     cover_image_url = Column(String(2048), nullable=True)
     privacy = Column(String(20), nullable=False, server_default="public", default="public")
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships (using lazy='select' to defer loading until needed)

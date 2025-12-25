@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
@@ -324,23 +324,15 @@ def read_feed(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Get playlists from followed users
-    following_ids = db.query(Follow.following_id).filter(
-        Follow.follower_id == current_user.id
-    ).all()
-    following_ids = [f[0] for f in following_ids]
-    
-
-    if not following_ids:
-        return []
-
+    # Get playlists from followed users using a join for better performance
     playlists = (
         db.query(Playlist)
+        .join(Follow, Follow.following_id == Playlist.user_id)
+        .filter(Follow.follower_id == current_user.id)
         .options(
-            selectinload(Playlist.owner),
+            joinedload(Playlist.owner),
             selectinload(Playlist.songs),
         )
-        .filter(Playlist.user_id.in_(following_ids))
         .filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
         .order_by(desc(Playlist.created_at))
         .offset(skip)
@@ -348,13 +340,15 @@ def read_feed(
         .all()
     )
 
+    if not playlists:
+        return []
+
     _prefetch_playlist_stats(db, playlists, current_user)
     
-    # Prefetch song stats for all songs in these playlists
-    all_songs = []
-    for p in playlists:
-        all_songs.extend(p.songs)
-    _prefetch_song_stats(db, all_songs, current_user)
+    # Prefetch song stats for all unique songs in these playlists
+    unique_songs = {s for p in playlists for s in (p.songs or [])}
+    if unique_songs:
+        _prefetch_song_stats(db, list(unique_songs), current_user)
 
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
