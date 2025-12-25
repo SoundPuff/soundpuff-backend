@@ -21,3 +21,23 @@ class LikeInDB(LikeBase):
 
 class Like(LikeInDB):
     pass
+
+
+class SongLikeBase(BaseModel):
+    song_id: int
+
+
+class SongLikeCreate(SongLikeBase):
+    pass
+
+
+class SongLikeInDB(SongLikeBase):
+    user_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SongLike(SongLikeInDB):
+    pass

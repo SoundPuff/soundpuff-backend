@@ -24,6 +24,7 @@ class User(Base):
     playlists = relationship("Playlist", back_populates="owner", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
     likes = relationship("Like", back_populates="user", cascade="all, delete-orphan")
+    song_likes = relationship("SongLike", back_populates="user", cascade="all, delete-orphan")
     comment_likes = relationship("CommentLike", back_populates="user", cascade="all, delete-orphan")
 
     # Following relationships

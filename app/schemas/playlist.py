@@ -42,7 +42,7 @@ class Playlist(PlaylistInDB):
     songs: List[Song] = Field(default_factory=list)
     likes_count: int = 0
     comments_count: int = 0
-    is_liked: bool = False
+    is_liked: Optional[bool] = None
 
 
 class PlaylistAddSong(BaseModel):

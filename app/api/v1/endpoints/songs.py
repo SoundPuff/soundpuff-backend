@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import desc, or_
-from sqlalchemy.orm import Session
-from typing import Optional
+from sqlalchemy import desc, or_, func
+from sqlalchemy.orm import Session, selectinload
+from typing import Optional, List
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models import Song, User, Playlist, Like
+from app.models import Song, User, Playlist, Like, SongLike
+from app.schemas.like import SongLike as SongLikeSchema
 from app.schemas.search import (
     SongSearchResult, 
     SongSearchResults,
@@ -33,11 +34,81 @@ def _check_user_liked_playlist(db: Session, playlist_id: int, user_id) -> bool:
     ).first() is not None
 
 
-def _playlist_to_search_response(db: Session, playlist: Playlist, current_user: User) -> dict:
-    """Convert a playlist model to a search response dict with is_liked."""
-    is_liked = _check_user_liked_playlist(db, playlist.id, current_user.id)
+def _check_user_liked_song(db: Session, song_id: int, user_id) -> bool:
+    """Check if a user has liked a specific song."""
+    if user_id is None:
+        return False
+    return db.query(SongLike).filter(
+        SongLike.user_id == user_id,
+        SongLike.song_id == song_id
+    ).first() is not None
+
+
+def _prefetch_song_stats(
+    db: Session,
+    songs: List[Song],
+    current_user: Optional[User],
+    prefetch_is_liked: bool = True,
+) -> None:
+    """Annotate songs with bulk-fetched counts and liked state."""
+    song_ids = [s.id for s in songs]
+    if not song_ids:
+        return
+
+    likes_counts = dict(
+        db.query(SongLike.song_id, func.count(SongLike.song_id))
+        .filter(SongLike.song_id.in_(song_ids))
+        .group_by(SongLike.song_id)
+        .all()
+    )
+
+    liked_ids = set()
+    if prefetch_is_liked and current_user is not None:
+        liked_ids = {
+            sid
+            for (sid,) in db.query(SongLike.song_id)
+            .filter(
+                SongLike.user_id == current_user.id,
+                SongLike.song_id.in_(song_ids),
+            )
+            .all()
+        }
+
+    for song in songs:
+        song._prefetched_likes_count = int(likes_counts.get(song.id, 0))
+        if prefetch_is_liked:
+            song._prefetched_is_liked = song.id in liked_ids
+
+
+def _song_to_response(db: Session, song: Song, current_user: Optional[User], include_is_liked: bool = True) -> dict:
+    """Convert a song model to a response dict with is_liked."""
+    pre_likes_count = getattr(song, "_prefetched_likes_count", None)
+
+    res = {
+        "id": song.id,
+        "title": song.title,
+        "artist": song.artist,
+        "album_art_url": song.album_art_url,
+        "song_url": song.song_url,
+        "created_at": song.created_at,
+        "likes_count": int(pre_likes_count) if pre_likes_count is not None else song.likes_count,
+    }
+
+    if include_is_liked:
+        pre_is_liked = getattr(song, "_prefetched_is_liked", None)
+        is_liked = (
+            bool(pre_is_liked)
+            if pre_is_liked is not None
+            else _check_user_liked_song(db, song.id, current_user.id if current_user else None)
+        )
+        res["is_liked"] = is_liked
     
-    return {
+    return res
+
+
+def _playlist_to_search_response(db: Session, playlist: Playlist, current_user: User, include_is_liked: bool = True) -> dict:
+    """Convert a playlist model to a search response dict with is_liked."""
+    res = {
         "id": playlist.id,
         "title": playlist.title,
         "description": playlist.description,
@@ -47,16 +118,20 @@ def _playlist_to_search_response(db: Session, playlist: Playlist, current_user: 
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,
         "owner": playlist.owner,
-        "songs": playlist.songs,
+        "songs": [_song_to_response(db, s, current_user, include_is_liked=include_is_liked) for s in (playlist.songs or [])],
         "likes_count": playlist.likes_count,
         "comments_count": playlist.comments_count,
-        "is_liked": is_liked,
     }
+
+    if include_is_liked:
+        res["is_liked"] = _check_user_liked_playlist(db, playlist.id, current_user.id)
+    
+    return res
 
 
 # ==================== SONG SEARCH ====================
 
-@router.get("/search", response_model=SongSearchResults)
+@router.get("/search", response_model=SongSearchResults, response_model_exclude_none=True)
 def search_songs(
     query: str = Query(..., min_length=1, description="Search query for song title or artist"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
@@ -85,7 +160,12 @@ def search_songs(
         base_query.order_by(desc(Song.created_at)).offset(offset).limit(limit).all()
     )
 
-    song_results = [SongSearchResult(song=song) for song in songs]
+    _prefetch_song_stats(db, songs, current_user, prefetch_is_liked=False)
+
+    song_results = [
+        SongSearchResult(song=_song_to_response(db, song, current_user, include_is_liked=False)) 
+        for song in songs
+    ]
 
     return SongSearchResults(query=query, songs=song_results, total=total)
 
@@ -128,7 +208,7 @@ def search_users(
 
 # ==================== PLAYLIST SEARCH ====================
 
-@router.get("/playlists/search", response_model=PlaylistSearchResults)
+@router.get("/playlists/search", response_model=PlaylistSearchResults, response_model_exclude_none=True)
 def search_playlists(
     query: str = Query(..., min_length=1, description="Search query for playlist title or description"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
@@ -150,7 +230,10 @@ def search_playlists(
         Playlist.description.ilike(f"%{query}%"),
     )
 
-    base_query = db.query(Playlist).filter(search_filter)
+    base_query = db.query(Playlist).filter(search_filter).options(
+        selectinload(Playlist.owner),
+        selectinload(Playlist.songs)
+    )
 
     # Show public + user's own private playlists
     base_query = base_query.filter(
@@ -166,14 +249,23 @@ def search_playlists(
         base_query.order_by(desc(Playlist.created_at)).offset(offset).limit(limit).all()
     )
 
-    playlist_results = [PlaylistSearchResult(playlist=playlist) for playlist in playlists]
+    # Prefetch song stats for all songs in these playlists
+    all_songs = []
+    for p in playlists:
+        all_songs.extend(p.songs)
+    _prefetch_song_stats(db, all_songs, current_user, prefetch_is_liked=False)
+
+    playlist_results = [
+        PlaylistSearchResult(playlist=_playlist_to_search_response(db, playlist, current_user, include_is_liked=False)) 
+        for playlist in playlists
+    ]
 
     return PlaylistSearchResults(query=query, playlists=playlist_results, total=total)
 
 
 # ==================== COMBINED SEARCH ====================
 
-@router.get("/all", response_model=SearchResults)
+@router.get("/all", response_model=SearchResults, response_model_exclude_none=True)
 def search_all(
     query: str = Query(..., min_length=1, description="Search query"),
     type: SearchType = Query(SearchType.ALL, description="Type of search: all, users, songs, or playlists"),
@@ -219,7 +311,11 @@ def search_all(
         song_query = db.query(Song).filter(song_filter)
         total_songs = song_query.count()
         song_list = song_query.order_by(desc(Song.created_at)).offset(offset).limit(limit).all()
-        songs = [SongSearchResult(song=song) for song in song_list]
+        _prefetch_song_stats(db, song_list, current_user, prefetch_is_liked=False)
+        songs = [
+            SongSearchResult(song=_song_to_response(db, song, current_user, include_is_liked=False)) 
+            for song in song_list
+        ]
 
     # Search Playlists
     if type in (SearchType.ALL, SearchType.PLAYLISTS):
@@ -227,7 +323,10 @@ def search_all(
             Playlist.title.ilike(f"%{query}%"),
             Playlist.description.ilike(f"%{query}%"),
         )
-        playlist_query = db.query(Playlist).filter(playlist_filter)
+        playlist_query = db.query(Playlist).filter(playlist_filter).options(
+            selectinload(Playlist.owner),
+            selectinload(Playlist.songs)
+        )
         
         # Show public + user's own private playlists
         playlist_query = playlist_query.filter(
@@ -239,7 +338,17 @@ def search_all(
         
         total_playlists = playlist_query.count()
         playlist_list = playlist_query.order_by(desc(Playlist.created_at)).offset(offset).limit(limit).all()
-        playlists = [PlaylistSearchResult(playlist=playlist) for playlist in playlist_list]
+        
+        # Prefetch song stats for all songs in these playlists
+        all_playlist_songs = []
+        for p in playlist_list:
+            all_playlist_songs.extend(p.songs)
+        _prefetch_song_stats(db, all_playlist_songs, current_user, prefetch_is_liked=False)
+
+        playlists = [
+            PlaylistSearchResult(playlist=_playlist_to_search_response(db, playlist, current_user, include_is_liked=False)) 
+            for playlist in playlist_list
+        ]
 
     return SearchResults(
         query=query,
@@ -250,3 +359,73 @@ def search_all(
         total_songs=total_songs,
         total_playlists=total_playlists
     )
+
+
+# ==================== SONG LIKES ====================
+
+@router.post("/{song_id}/like", response_model=SongLikeSchema, status_code=status.HTTP_201_CREATED)
+def like_song(
+    song_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Like a song.
+    Requires authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Song not found"
+        )
+
+    existing_like = db.query(SongLike).filter(
+        SongLike.user_id == current_user.id,
+        SongLike.song_id == song_id
+    ).first()
+
+    if existing_like:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already liked this song"
+        )
+
+    like = SongLike(user_id=current_user.id, song_id=song_id)
+    db.add(like)
+    db.commit()
+    db.refresh(like)
+    return like
+
+
+@router.delete("/{song_id}/like", status_code=status.HTTP_204_NO_CONTENT)
+def unlike_song(
+    song_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Unlike a song.
+    Requires authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Song not found"
+        )
+
+    like = db.query(SongLike).filter(
+        SongLike.user_id == current_user.id,
+        SongLike.song_id == song_id
+    ).first()
+
+    if not like:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Like not found"
+        )
+
+    db.delete(like)
+    db.commit()
+    return None

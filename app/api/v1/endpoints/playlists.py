@@ -9,7 +9,7 @@ from app.core.deps import get_current_user, get_current_user_optional
 from app.core.sanitize import sanitize_text
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import User, Playlist, Like, Comment, Follow, CommentLike
+from app.models import User, Playlist, Like, Comment, Follow, CommentLike, SongLike
 from app.schemas.playlist import Playlist as PlaylistSchema, PlaylistCreate, PlaylistUpdate
 from app.schemas.playlist import PlaylistAddSong
 from app.models import Song
@@ -38,6 +38,78 @@ def _check_user_liked_comment(db: Session, comment_id: int, user_id) -> bool:
         CommentLike.user_id == user_id,
         CommentLike.comment_id == comment_id,
     ).first() is not None
+
+
+def _check_user_liked_song(db: Session, song_id: int, user_id) -> bool:
+    """Check if a user has liked a specific song."""
+    if user_id is None:
+        return False
+    return db.query(SongLike).filter(
+        SongLike.user_id == user_id,
+        SongLike.song_id == song_id
+    ).first() is not None
+
+
+def _prefetch_song_stats(
+    db: Session,
+    songs: List[Song],
+    current_user: Optional[User],
+    prefetch_is_liked: bool = True,
+) -> None:
+    """Annotate songs with bulk-fetched counts and liked state."""
+    song_ids = [s.id for s in songs]
+    if not song_ids:
+        return
+
+    likes_counts = dict(
+        db.query(SongLike.song_id, func.count(SongLike.song_id))
+        .filter(SongLike.song_id.in_(song_ids))
+        .group_by(SongLike.song_id)
+        .all()
+    )
+
+    liked_ids = set()
+    if prefetch_is_liked and current_user is not None:
+        liked_ids = {
+            sid
+            for (sid,) in db.query(SongLike.song_id)
+            .filter(
+                SongLike.user_id == current_user.id,
+                SongLike.song_id.in_(song_ids),
+            )
+            .all()
+        }
+
+    for song in songs:
+        song._prefetched_likes_count = int(likes_counts.get(song.id, 0))
+        if prefetch_is_liked:
+            song._prefetched_is_liked = song.id in liked_ids
+
+
+def _song_to_response(db: Session, song: Song, current_user: Optional[User], include_is_liked: bool = True) -> dict:
+    """Convert a song model to a response dict with is_liked."""
+    pre_likes_count = getattr(song, "_prefetched_likes_count", None)
+
+    res = {
+        "id": song.id,
+        "title": song.title,
+        "artist": song.artist,
+        "album_art_url": song.album_art_url,
+        "song_url": song.song_url,
+        "created_at": song.created_at,
+        "likes_count": int(pre_likes_count) if pre_likes_count is not None else song.likes_count,
+    }
+
+    if include_is_liked:
+        pre_is_liked = getattr(song, "_prefetched_is_liked", None)
+        is_liked = (
+            bool(pre_is_liked)
+            if pre_is_liked is not None
+            else _check_user_liked_song(db, song.id, current_user.id if current_user else None)
+        )
+        res["is_liked"] = is_liked
+    
+    return res
 
 
 
@@ -75,7 +147,7 @@ def _playlist_to_response(db: Session, playlist: Playlist, current_user: Optiona
         "created_at": playlist.created_at,
         "updated_at": playlist.updated_at,
         "owner": playlist.owner,
-        "songs": list(playlist.songs or []),
+        "songs": [_song_to_response(db, s, current_user) for s in (playlist.songs or [])],
         "likes_count": int(pre_likes_count) if pre_likes_count is not None else playlist.likes_count,
         "comments_count": int(pre_comments_count) if pre_comments_count is not None else playlist.comments_count,
         "is_liked": is_liked,
@@ -235,6 +307,13 @@ def read_playlists(
 
     playlists = query.order_by(desc(Playlist.created_at)).offset(skip).limit(limit).all()
     _prefetch_playlist_stats(db, playlists, current_user)
+    
+    # Prefetch song stats for all songs in these playlists
+    all_songs = []
+    for p in playlists:
+        all_songs.extend(p.songs)
+    _prefetch_song_stats(db, all_songs, current_user)
+
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
@@ -270,6 +349,13 @@ def read_feed(
     )
 
     _prefetch_playlist_stats(db, playlists, current_user)
+    
+    # Prefetch song stats for all songs in these playlists
+    all_songs = []
+    for p in playlists:
+        all_songs.extend(p.songs)
+    _prefetch_song_stats(db, all_songs, current_user)
+
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
@@ -319,6 +405,8 @@ def create_playlist(
     
     db.commit()
     db.refresh(playlist)
+    _prefetch_playlist_stats(db, [playlist], current_user)
+    _prefetch_song_stats(db, playlist.songs, current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
@@ -346,6 +434,7 @@ def read_playlist(
 
     # Avoid triggering lazy-loads for counts/liked state.
     _prefetch_playlist_stats(db, [playlist], current_user)
+    _prefetch_song_stats(db, playlist.songs, current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
@@ -401,6 +490,8 @@ def update_playlist(
         
     db.commit()
     db.refresh(playlist)
+    _prefetch_playlist_stats(db, [playlist], current_user)
+    _prefetch_song_stats(db, playlist.songs, current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
@@ -604,7 +695,8 @@ def add_song_to_playlist(
     playlist.songs.append(song)
     db.commit()
     db.refresh(playlist)
-    _prefetch_comment_like_state(db, [comment], current_user)
+    _prefetch_playlist_stats(db, [playlist], current_user)
+    _prefetch_song_stats(db, playlist.songs, current_user)
     return _playlist_to_response(db, playlist, current_user)
 
 
@@ -672,6 +764,7 @@ def update_comment(
     comment.body = sanitized_body
     db.commit()
     db.refresh(comment)
+    _prefetch_comment_like_state(db, [comment], current_user)
     return comment
 
 

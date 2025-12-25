@@ -23,7 +23,8 @@ class SongInDB(SongBase):
 
 
 class Song(SongInDB):
-    pass
+    likes_count: int = 0
+    is_liked: Optional[bool] = None
 
 
 class SongListResponse(BaseModel):

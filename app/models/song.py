@@ -17,3 +17,8 @@ class Song(Base):
 
     # Relationships
     playlists = relationship("Playlist", secondary=playlist_songs, back_populates="songs")
+    likes = relationship("SongLike", back_populates="song", cascade="all, delete-orphan", lazy="select")
+
+    @property
+    def likes_count(self) -> int:
+        return len(self.likes)

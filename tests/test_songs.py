@@ -249,3 +249,83 @@ def test_combined_search_excludes_private_playlists_of_others(client, berra_user
     titles = {p["playlist"]["title"] for p in body["playlists"]}
     assert "own secret" in titles
     assert "stranger secret" not in titles
+
+
+# ==================== SONG LIKES ====================
+
+def test_like_song_success(client, berra_user, hit_em_up, db_session):
+    from app.core.deps import get_current_user
+    from app.main import app
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    resp = client.post(f"/api/v1/songs/{hit_em_up.id}/like")
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["song_id"] == hit_em_up.id
+    assert body["user_id"] == str(berra_user.id)
+
+
+def test_like_song_already_liked(client, berra_user, hit_em_up, db_session):
+    from app.core.deps import get_current_user
+    from app.main import app
+    from app.models import SongLike
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Pre-like
+    like = SongLike(user_id=berra_user.id, song_id=hit_em_up.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.post(f"/api/v1/songs/{hit_em_up.id}/like")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Already liked this song"
+
+
+def test_unlike_song_success(client, berra_user, hit_em_up, db_session):
+    from app.core.deps import get_current_user
+    from app.main import app
+    from app.models import SongLike
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Pre-like
+    like = SongLike(user_id=berra_user.id, song_id=hit_em_up.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/songs/{hit_em_up.id}/like")
+    assert resp.status_code == 204
+
+    # Verify deleted
+    exists = db_session.query(SongLike).filter_by(user_id=berra_user.id, song_id=hit_em_up.id).first()
+    assert exists is None
+
+
+def test_unlike_song_not_found(client, berra_user, hit_em_up):
+    from app.core.deps import get_current_user
+    from app.main import app
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    resp = client.delete(f"/api/v1/songs/{hit_em_up.id}/like")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Like not found"
+
+
+def test_song_search_includes_like_metadata(client, berra_user, hit_em_up, db_session):
+    from app.core.deps import get_current_user
+    from app.main import app
+    from app.models import SongLike
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    # Add a like
+    like = SongLike(user_id=berra_user.id, song_id=hit_em_up.id)
+    db_session.add(like)
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/songs/search?query={hit_em_up.title}")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    song_data = body["songs"][0]["song"]
+    assert song_data["likes_count"] == 1
+    # is_liked should not be returned in search results as per new requirement
+    assert "is_liked" not in song_data
