@@ -353,6 +353,47 @@ def read_feed(
     return [_playlist_to_response(db, p, current_user) for p in playlists]
 
 
+@router.get("/most-liked", response_model=PlaylistSchema)
+def read_most_liked_playlist(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Get the playlist with the most likes."""
+    # Subquery to get like counts
+    like_counts = db.query(
+        Like.playlist_id,
+        func.count(Like.playlist_id).label("total_likes")
+    ).group_by(Like.playlist_id).subquery()
+
+    query = db.query(Playlist).outerjoin(
+        like_counts, Playlist.id == like_counts.c.playlist_id
+    ).options(
+        selectinload(Playlist.owner),
+        selectinload(Playlist.songs),
+    )
+
+    if current_user is None:
+        query = query.filter(Playlist.privacy == "public")
+    else:
+        query = query.filter(or_(Playlist.privacy == "public", Playlist.user_id == current_user.id))
+
+    playlist = query.order_by(
+        desc(func.coalesce(like_counts.c.total_likes, 0)),
+        desc(Playlist.created_at)
+    ).first()
+    
+    if not playlist:
+        raise HTTPException(status_code=404, detail="No playlists found")
+
+    _prefetch_playlist_stats(db, [playlist], current_user)
+    
+    # Prefetch song stats for all unique songs in this playlist
+    if playlist.songs:
+        _prefetch_song_stats(db, playlist.songs, current_user)
+
+    return _playlist_to_response(db, playlist, current_user)
+
+
 @router.post("/", response_model=PlaylistSchema, status_code=status.HTTP_201_CREATED)
 def create_playlist(
     playlist_in: PlaylistCreate,

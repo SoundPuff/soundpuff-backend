@@ -310,6 +310,30 @@ def test_boolean_privacy_is_normalized_to_public(client, db_session, current_use
     assert found["privacy"] == "public"
 
 
+def test_read_most_liked_playlist(client, db_session, current_user, other_user):
+    """Test that the most-liked playlist is returned."""
+    # Create playlists
+    p1 = _create_playlist(db_session, current_user, "Playlist 1", privacy="public")
+    p2 = _create_playlist(db_session, current_user, "Playlist 2", privacy="public")
+    p3 = _create_playlist(db_session, other_user, "Playlist 3", privacy="public")
+    
+    # Add likes
+    # p2 has 2 likes
+    db_session.add(Like(user_id=current_user.id, playlist_id=p2.id))
+    db_session.add(Like(user_id=other_user.id, playlist_id=p2.id))
+    # p1 has 1 like
+    db_session.add(Like(user_id=other_user.id, playlist_id=p1.id))
+    # p3 has 0 likes
+    db_session.commit()
+
+    response = client.get("/api/v1/playlists/most-liked")
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["title"] == "Playlist 2"
+    assert data["likes_count"] == 2
+
+
 # ==================== GET /feed tests ====================
 
 
