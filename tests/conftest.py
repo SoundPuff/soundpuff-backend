@@ -5,6 +5,11 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+os.environ.setdefault("SECRET_KEY", "test-secret-key")
+os.environ.setdefault("ALGORITHM", "HS256")
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 # Allow models that use PostgreSQL UUID columns to be created under SQLite.
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
