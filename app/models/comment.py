@@ -12,7 +12,7 @@ class Comment(Base):
     body = Column(Text, nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     playlist_id = Column(BigInteger, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False, index=True)
-    parent_comment_id = Column(BigInteger, ForeignKey("comments.id", ondelete="SET NULL"), nullable=True)
+    parent_comment_id = Column(BigInteger, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -28,7 +28,8 @@ class Comment(Base):
         "Comment",
         back_populates="parent",
         passive_deletes=True,
-        cascade="save-update",
+        cascade="all, delete-orphan",
+        single_parent=True,
     )
     likes = relationship("CommentLike", back_populates="comment", cascade="all, delete-orphan")
 
