@@ -114,6 +114,16 @@ def test_search_songs_matches_artist(client, berra_user, hit_em_up):
     assert body["songs"][0]["song"]["artist"] == "Berra Beats"
 
 
+def test_search_songs_matches_id(client, berra_user, hit_em_up):
+    app.dependency_overrides[get_current_user] = lambda: berra_user
+
+    resp = client.get(f"/api/v1/songs/search?query={hit_em_up.id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["songs"][0]["song"]["id"] == hit_em_up.id
+
+
 def test_search_songs_pagination(client, berra_user, db_session):
     app.dependency_overrides[get_current_user] = lambda: berra_user
 

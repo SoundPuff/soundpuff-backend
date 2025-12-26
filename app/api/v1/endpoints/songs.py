@@ -140,18 +140,22 @@ def search_songs(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Search songs by title or artist using a case-insensitive partial match.
+    Search songs by title, artist, or ID using a case-insensitive partial match.
     Requires authentication.
     
-    - **query**: Search term (e.g., "ar" matches "artist", "guitar", etc.)
+    - **query**: Search term (e.g., "ar" matches "artist", "guitar", etc. or "123" matches song ID)
     - **limit**: Maximum results to return (default: 20, max: 100)
     - **offset**: Pagination offset
     """
 
-    search_filter = or_(
+    conditions = [
         Song.title.ilike(f"%{query}%"),
         Song.artist.ilike(f"%{query}%"),
-    )
+    ]
+    if query.isdigit():
+        conditions.append(Song.id == int(query))
+
+    search_filter = or_(*conditions)
 
     base_query = db.query(Song).filter(search_filter)
     total = base_query.count()
